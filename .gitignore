@@ -1,0 +1,27 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.mypy_cache/
+.vscode/
+*.log
+*.egg-info/
+
+# test database
+Routing_Api/db.sqlite3
+
+# User-specific files
+*.suo
+*.user
+
+# Python enviroments
+env/
+04_API/Routing_Api/Routing_Api/Routing_Api/Mobis/lib/
+.idea/
+*.p
+routing/test_profile_stats_dump.txt
+routing/test_profile_graph.png
+routing/test_profile_stats_cumtime.txt
+routing/test_profile_graph.dot
+routing/test_profile_stats_tottime.txt
+routing/.coverage
+database
