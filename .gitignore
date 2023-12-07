@@ -13,8 +13,14 @@ Routing_Api/db.sqlite3
 *.suo
 *.user
 
-# Python enviroments
+# Environments
+.env
+.venv
 env/
+venv/
+ENV/
+env.bak/
+venv.bak/
 04_API/Routing_Api/Routing_Api/Routing_Api/Mobis/lib/
 .idea/
 *.p
