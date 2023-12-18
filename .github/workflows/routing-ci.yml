@@ -34,11 +34,21 @@ jobs:
       with:
         python-version: 3.9.16
         
-    - name: Install Dependencies
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
+        pip install -e ./routing
         pip install -r requirements.txt
+
+    - name: Run migration
+      run: |
+        cd Routing_Api
+        python manage.py migrate
+        python manage.py migrate Mobis
         
-    - name: Run Tests
+    - name: Run tests
       run: |
         python manage.py test -v 2 --keepdb --noinput
+      env:
+        REST_THROTTLINGRATE_ANON: 300 
+        REST_THROTTLINGRATE_USER: 100
