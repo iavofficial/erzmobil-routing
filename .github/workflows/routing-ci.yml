@@ -17,6 +17,9 @@ jobs:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_DB: routing
           POSTGRES_HOST: localhost
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
 
       rabbitmq:
         image: rabbitmq:3.9-alpine
@@ -25,6 +28,8 @@ jobs:
           RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}
           RABBITMQ_HOST: localhost
           RABBITMQ_VHOST: /
+        ports:
+          - 5672:5672
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
