@@ -13,17 +13,17 @@ jobs:
       db:
         image: postgis/postgis:13-master
         env:
-          # store username and password in GitHub secrets
-          POSTGRES_USER: TMP
-          POSTGRES_PASSWORD: TMP
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_DB: routing
+          POSTGRES_HOST: localhost
 
       rabbitmq:
         image: rabbitmq:3.9-alpine
         env:
-          # store username and password in GitHub secrets
-          RABBITMQ_USERNAME: TMP
-          RABBITMQ_PASSWORD: TMP
+          RABBITMQ_USERNAME: ${{ secrets.RABBITMQ_USERNAME }}
+          RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}
+          RABBITMQ_HOST: localhost
           RABBITMQ_VHOST: /
     steps:
     - name: Checkout code
