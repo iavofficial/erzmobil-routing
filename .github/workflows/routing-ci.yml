@@ -11,6 +11,7 @@ jobs:
     env:
         POSTGRES_HOST: localhost
         POSTGRES_PORT: 5432
+        POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
     runs-on: ubuntu-latest
     services:
       postgres:
