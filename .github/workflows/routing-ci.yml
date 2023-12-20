@@ -8,6 +8,9 @@ on:
 
 jobs:
   tests:
+    env:
+        POSTGRES_HOST: postgres
+        POSTGRES_PORT: 5432
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -54,7 +57,5 @@ jobs:
       run: |
         python manage.py test -v 2 --keepdb --noinput
       env:
-        POSTGRES_HOST: postgres
-        POSTGRES_PORT: 5432
         REST_THROTTLINGRATE_ANON: 300 
         REST_THROTTLINGRATE_USER: 100
