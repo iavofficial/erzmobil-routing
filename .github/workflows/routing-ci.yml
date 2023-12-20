@@ -57,6 +57,7 @@ jobs:
         
     - name: Run tests
       run: |
+        cd Routing_Api
         python manage.py test -v 2 --keepdb --noinput
       env:
         REST_THROTTLINGRATE_ANON: 300 
