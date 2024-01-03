@@ -61,5 +61,6 @@ jobs:
         cd Routing_Api
         python manage.py test -v 2 --keepdb --noinput
       env:
+        SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
         REST_THROTTLINGRATE_ANON: 300 
         REST_THROTTLINGRATE_USER: 100
