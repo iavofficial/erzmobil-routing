@@ -25,7 +25,7 @@ SECRET_KEY = os.environ.get('SECRET_KEY')
 DEBUG = BUSNOW_ENVIRONMENT == 'DEBUGGING'
 
 # Who can access the server? ['localhost', '127.0.0.1'] for local debugging
-ALLOWED_HOSTS = (os.environ.get('ALLOWED_HOSTS', ['*']))
+ALLOWED_HOSTS = (os.environ.get('ALLOWED_HOSTS'))
 
 
 # Application definition
