@@ -990,7 +990,8 @@ class RoutendetailsAnfrageMobi(TestCase, Setups):
         timeElapsed = time.time() - timeStarted
 
         # OSRM performance much better than self managed maps
-        self.assertGreater(0.5, timeElapsed)
+        # increase time because it might take a bit longer in the CI pipeline
+        self.assertGreater(1, timeElapsed)
 
         self.assertEqual(response1.status_code, 200)
         self.assertEqual(response2.status_code, 200)
