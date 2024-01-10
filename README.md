@@ -5,11 +5,9 @@ In dieser Datei soll skizziert werden, wie die Entwicklung des Routing-Service a
 ## Inhaltsverzeichnis
 
   - [Algemeine Informationen](#algemeine-informationen)
-  - [Dokumentation früherer Entwicklungsphasen: Gitlab-Wiki](#dokumentation-früherer-entwicklungsphasen-gitlab-wiki)
-  - [Allgmeines Infos zu Entwicklungstools](#allgmeines-infos-zu-entwicklungstools)
-    - [Gitlab-Repo](#gitlab-repo)
-    - [Gitlab-Pipeline CI/CD](#gitlab-pipeline-cicd)
-    - [Aufgabenplanung/Tickets](#aufgabenplanungtickets)
+  - [Allgemeine Infos zu Entwicklungstools](#allgemeine-infos-zu-entwicklungstools)
+    - [GitHub-Repo](#github-repo)
+    - [GitHub Actions](#github-actions)
     - [Algorithmen-Entwicklung in Python](#algorithmen-entwicklung-in-python)
   - [Entwickeln und Debuggen](#entwickeln-und-debuggen)
     - [Docker aufräumen](#docker-aufräumen)
@@ -32,21 +30,17 @@ In dieser Datei soll skizziert werden, wie die Entwicklung des Routing-Service a
 
 Das Routing ist Teil des Backends und zuständig für die Berechnung und Otpimierung von Routen. Die eigentliche Datenverwaltung findet in einem anderen Service des Backend (Order-Service - Directus) statt.
 
-## Dokumentation früherer Entwicklungsphasen: Gitlab-Wiki
+## Allgemeine Infos zu Entwicklungstools
 
-Infomationen früherer Entwicklungsphasen (vor 2021) findet man im Gitlab-Wiki des ursprünglichen Repos.
+### GitHub-Repo
 
-## Allgmeines Infos zu Entwicklungstools
+Der Quellcode für das Routing ist in diesem GitHub-Projekt abgelegt.
 
-### Gitlab-Repo
+* Achtung: die Karten-Daten im Ordner `Maps` sind im GIT-LFS (Large-FileStorage), man muss sichergehen, dass die Daten heruntergeladen wurden, ansonsten können die Tests nicht funktionieren, Workaround: Daten manuell aus GitHub downloaden
 
-Der Quellcode für das Routing ist in diesem Gitlab-Projekt abgelegt.
+### GitHub Actions
 
-* Achtung: die Karten-Daten im Ordner `Maps` sind im GIT-LFS (Large-FileStorage), man muss sichergehen, dass die Daten heruntergeladen wurden, ansonsten können die Tests nicht funktionieren, Workaround: Daten manuell aus Gitlab downloaden
-
-### Gitlab-Pipeline CI/CD
-
-Es wurde eine Gitlab-Pipeline aufgebaut, die:
+Es wurde eine GitHub Actions Pipeline aufgebaut, die:
 
 - bei jedem Commit alle Tests durchlaufen lässt
 - bei jedem Merge in den Hauptzweig die neuen Images fürs Routing baut
@@ -65,7 +59,7 @@ Der Routing-Algorithmus ist in Python programmiert. Für die Lösung des Optimie
 
 Als Online-Routingservice wurde mit `OSRM` experimentiert, teilweise können die Algorithmen auf `ORSM` zugreifen. Dafür kann man entweder den öffentlichen `OSRM`-Testserver nutzen (langsam!) oder man baut sich eine eigene Instanz (performanter!).
 
-Die Datenbankentwicklung erfolgt mit dem sehr mächtigen Paket `Django`. Als Messaging-Service wird `RabbitMQ` verwendet. Als Datenbank fungiert `PostgreSQL`.
+Die Datenbankentwicklung erfolgt mit dem Python-basierten Framework `Django`. Als Messaging-Service wird `RabbitMQ` verwendet. Als Datenbank fungiert `PostgreSQL`.
 
 Für nebenläufige Tasks (z.B. Wartungsaufgaben im Routing-Backend) werden `celery-beat` und `celery-worker` genutzt.
 
@@ -137,7 +131,7 @@ Mit diesem Container hat man einen lokalen Routing-Server um die Api etc. zu tes
 ```
 http://localhost:8080/routes/?startLatitude=50.684529404859774&startLongitude=12.80551264237144&stopLatitude=50.64192430537674&stopLongitude=12.81952450226538&time=2022-01-21T11%3A30%3A00%2B01%3A00&isDeparture=true&seatNumber=1&seatNumberWheelchair=0&routeId=0&routeId=0&suggestAlternatives=later
 ```
-Damit dieser Container richtig arbeiten könnte, müsste aber lokal auch das Backend zur Verfügung gestellt werden. Ansonsten sind die Testmöglichkeiten beschränkt. Es ist möglich, das Directus-Backend anzuschließen. Alternativ für Testzwecke mit dem (nicht mehr unterstüzten) C#-Backend experimentieren.
+Damit dieser Container richtig arbeiten könnte, müsste aber lokal auch das Backend zur Verfügung gestellt werden. Ansonsten sind die Testmöglichkeiten beschränkt. Es ist möglich, das Directus-Backend anzuschließen.
 
 **Tester-Container**
 ```
@@ -158,7 +152,7 @@ Hiermit werden die nebenläufigen Tasks gestartet, siehe tasks.py.
 
 ### Integrationstests
 * der Docker-Container "tester" führt nach dem Start die Tests aus, die Logs kann man sich in VisualStudioCode mit dem Docker-Plugin anschauen oder auch in Docker selbst
-* die CI-Pipeline in Gitlab führt die Integrationstests aus
+* die CI-Pipeline von GitHub Actions führt die Integrationstests aus
 
 ### Lokales Entwicklen, Debuggen und Unit-Tests
 
@@ -171,8 +165,7 @@ Hiermit werden die nebenläufigen Tasks gestartet, siehe tasks.py.
 ```
 py -3.9-64 -m pip install -r requirements.txt
 ```
-* Achtung: in Firmen-Netzwerk-Zugang über Direct Access muss man darauf achten, dass die Umgebungsvariablen für den Proxy NICHT gesetzt sind, sonst funktioniert pip install nicht
-* bei Zugang mit AnyConnect kann es nötig sein, die Verbindung zu trennen
+* Achtung: in Firmen-Netzwerk-Zugang über DirectAccess muss man darauf achten, dass die Umgebungsvariablen für den Proxy NICHT gesetzt sind, sonst funktioniert pip install nicht
 
 * optional: Umgebungsvariablen in Console laden aus Datei: env.bat - scheint im Normalfall nicht nötig zu sein
 * Integrationstests können theoretisch gestartet werden mit 
