@@ -1,0 +1,94 @@
+version: "3"
+services:
+
+  # PostgreSQL with PostGIS
+  db:
+    image: postgis/postgis:13-master
+    restart: always
+    env_file:
+      - ./.env
+    ports:
+      - "5432:5432"
+
+  # Backend app
+  web:
+    build: .
+    restart: on-failure
+    environment:
+      - POSTGRES_HOST=db
+      - RABBITMQ_HOST=rabbitmq
+    env_file:
+      - ./.env
+    volumes:
+      - ./maps:/maps
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+      - rabbitmq
+
+  # Tester container for running integration tests locally
+  tester:
+    build: .
+    environment:
+      - BUSNOW_ENVIRONMENT=DEBUGGING
+      - POSTGRES_HOST=db
+      - RABBITMQ_HOST=rabbitmq
+      - OSRM_API_URI=NONE # empty since tests also use maps load from file
+      - REST_THROTTLINGRATE_ANON=300 
+      - REST_THROTTLINGRATE_USER=100
+      - ROUTING_FREEZE_TIME_DELTA=15
+    env_file:
+      - ./.env
+    entrypoint: python manage.py test -v 2 --keepdb --noinput # deactivate entrypoint for local debugging of container
+    #entrypoint: python manage.py test Routing_Api.Mobis.tests.Services.test_order_ordersWithMapsAndOSRMinSameRoute -v 2 --keepdb --noinput # run specific test
+    volumes:
+      - ./maps:/maps
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - rabbitmq
+
+  # RabbitMQ
+  rabbitmq:
+    image: "rabbitmq:3-management"
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+
+  # Celery Worker (responsible for executing the predefined tasks)
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Celeryworker.dockerfile
+    restart: on-failure
+    environment:
+      - POSTGRES_HOST=db
+      - RABBITMQ_HOST=rabbitmq
+      - ROUTING_FREEZE_TIME_DELTA=15
+    env_file:
+      - ./.env
+    depends_on:
+      - db
+
+  # Celery Beat (a scheduler that sends predefined tasks to celery worker)
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Celerybeat.dockerfile
+    restart: on-failure
+    command: [ "--pidfile=" ]
+    environment:
+      - POSTGRES_HOST=db
+      - RABBITMQ_HOST=rabbitmq      
+      - ROUTING_FREEZE_TIME_DELTA=15
+    env_file:
+      - ./.env
+    depends_on:
+      - db
+      - rabbitmq
+
+networks:
+  busnow-directus_directus:
+    external: true
