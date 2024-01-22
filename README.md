@@ -1,3 +1,7 @@
+![Unit and integration tests](https://github.com/Smoothex/erzmobil-routing/actions/workflows/tests.yml/badge.svg)
+
+![Image build](https://github.com/Smoothex/erzmobil-routing/actions/workflows/build-and-push.yml/badge.svg)
+
 # bUSnow-routing
 
 In dieser Datei soll skizziert werden, wie die Entwicklung des Routing-Service abläuft (Stand 07/2023).
