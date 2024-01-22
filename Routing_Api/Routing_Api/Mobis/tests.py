@@ -991,7 +991,7 @@ class RoutendetailsAnfrageMobi(TestCase, Setups):
 
         # OSRM performance much better than self managed maps
         # increase time because it might take a bit longer in the CI pipeline
-        self.assertGreater(1, timeElapsed)
+        self.assertGreater(1.5, timeElapsed)
 
         self.assertEqual(response1.status_code, 200)
         self.assertEqual(response2.status_code, 200)
