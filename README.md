@@ -1,4 +1,5 @@
-[![Unit and integration tests](https://github.com/Smoothex/erzmobil-routing/actions/workflows/tests.yml/badge.svg)](https://github.com/Smoothex/erzmobil-routing/actions/workflows/tests.yml)
+[![Unit tests](https://github.com/Smoothex/erzmobil-routing/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/Smoothex/erzmobil-routing/actions/workflows/unit-tests.yml)
+[![Integration tests](https://github.com/Smoothex/erzmobil-routing/actions/workflows/integration-tests.yml/badge.svg)](https://github.com/Smoothex/erzmobil-routing/actions/workflows/integration-tests.yml)
 [![Build and push image to AWS ECR](https://github.com/Smoothex/erzmobil-routing/actions/workflows/build-and-push.yml/badge.svg)](https://github.com/Smoothex/erzmobil-routing/actions/workflows/build-and-push.yml)
 
 # bUSnow-routing
