@@ -1,8 +1,8 @@
-![Unit and integration tests](https://github.com/Smoothex/erzmobil-routing/actions/workflows/tests.yml/badge.svg)
+[![Unit tests](https://github.com/Smoothex/erzmobil-routing/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/Smoothex/erzmobil-routing/actions/workflows/unit-tests.yml)
+[![Integration tests](https://github.com/Smoothex/erzmobil-routing/actions/workflows/integration-tests.yml/badge.svg)](https://github.com/Smoothex/erzmobil-routing/actions/workflows/integration-tests.yml)
+[![Build and push image to AWS ECR](https://github.com/Smoothex/erzmobil-routing/actions/workflows/build-and-push.yml/badge.svg)](https://github.com/Smoothex/erzmobil-routing/actions/workflows/build-and-push.yml)
 
-![Image build](https://github.com/Smoothex/erzmobil-routing/actions/workflows/build-and-push.yml/badge.svg)
-
-# bUSnow-routing
+# Routing component of Mobility platform
 
 In dieser Datei soll skizziert werden, wie die Entwicklung des Routing-Service abläuft (Stand 07/2023).
 
