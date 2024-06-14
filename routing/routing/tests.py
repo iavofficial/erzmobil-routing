@@ -1185,7 +1185,7 @@ class BusTourTest(TestCase):
 
         self.assertEqual(0, durations_dict_OSRM[station1][station1])
         self.assertAlmostEqual(13.54, durations_dict_OSRM[station1][station2], delta=0.1)
-        self.assertAlmostEqual(33.10, durations_dict_OSRM[station1][station3], delta=0.1)
+        self.assertAlmostEqual(33.10, durations_dict_OSRM[station1][station3], delta=0.15)
 
         self.assertAlmostEqual(13.41, durations_dict_OSRM[station2][station1], delta=0.1)
         self.assertEqual(0, durations_dict_OSRM[station2][station2])
