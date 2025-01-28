@@ -1,4 +1,4 @@
-FROM python:3.9.16
+FROM python:3.12.0
 
 WORKDIR /routing
 COPY routing ./
@@ -13,7 +13,7 @@ WORKDIR /www
 COPY Routing_Api ./
 RUN python -m compileall .
 
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONUNBUFFERED=1
 ENV IS_CELERY_APP yes
 
 ENTRYPOINT ["celery", "-A", "Routing_Api", "beat", "-l", "INFO"]

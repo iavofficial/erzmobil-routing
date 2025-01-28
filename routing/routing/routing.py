@@ -17,6 +17,10 @@ from typing import List, Tuple, Dict, Callable, Optional, Union, Any
 # debug stuff ####################
 import logging
 logger = logging.getLogger('routing.routing')
+
+# logging.basicConfig(
+#     level = logging.DEBUG)
+
 # end debug stuff ################
 
 from .rutils import Path, durations_matrix_OSRM, durations_matrix_graph, shortest_path_OSRM, shortest_path_OSRM_multi, shortest_path_graph, shortest_path_graph_gps, ConsolePrinter, travel_time, multi2single, STNIMMERLEIN
@@ -262,12 +266,12 @@ class CreateTimeEvaluator(object):
                 self._total_time[from_index][to_index] = duration_tmp + service_time_total
 
                 # calc a weighted distance: segments with passengers should have short routing times - increase costs
-                # reason: optimizer should not minimize distances without load, mobis shoul have shortest times
+                # reason: optimizer should not minimize distances without load, mobis should have shortest times
                 # however: note that this is not a general solution, since the load at nodes is NEVER KNOWN, the hop_ons is only a small part of reality
                 # as second rule we implement additional constraint
                 self._total_time_weighted[from_index][to_index] = self._total_time[from_index][to_index]*(1+2*number_passengers_hop_on+3*number_wheelchairs_hop_on_off)                
 
-                #print(f'service time {from_index} {to_index} {self._total_time[from_index][to_index]}')
+                logger.debug(f'service time {from_index} {to_index} {self._total_time[from_index][to_index]}')
 
     def time_evaluator(self, from_index:LocationIndex, to_index:LocationIndex)->int:
         """Returns the total time between the two nodes"""
@@ -308,15 +312,18 @@ def add_time_window_constraints(routing:pywrapcp.RoutingModel,
     for location_idx, time_window in enumerate(data.time_windows):
         if location_idx == 0:
             continue
-        logger.debug('time window constraint location: {}, window: {}'.format(
-            location_idx, time_window))
+        
         #print('time window constraint location: {}, window: {}'.format(location_idx, time_window))
         index: int = routingIndexManager.NodeToIndex(location_idx)
         time_dimension.CumulVar(index).SetRange(time_window[0], time_window[1])
         routing.AddToAssignment(time_dimension.SlackVar(index))
 
+        logger.debug('time window constraint location_idx: {}, window: {}, index'.format(
+            location_idx, time_window, index))
+
         # try to minimize waiting times for fixed arrivals
         if data._locations_arrival_fixed[location_idx] == True:
+            logger.debug('minimize waiting times for index: {}'.format(index))
             routing.AddVariableMinimizedByFinalizer(time_dimension.SlackVar(index)); 
         
     for vehicle_id in range(data.num_vehicles):
@@ -325,6 +332,7 @@ def add_time_window_constraints(routing:pywrapcp.RoutingModel,
         index = routing.Start(vehicle_id)
         #time_dimension.CumulVar(index).SetRange(data.time_windows[0][0], data.time_windows[0][1])
         routing.AddToAssignment(time_dimension.SlackVar(index))
+        logger.debug('add slack for vehicle index: {}'.format(index))
 
 def add_pickup_delivery_constraints(routing:pywrapcp.RoutingModel,
                                     routingIndexManager:pywrapcp.RoutingIndexManager,
@@ -359,8 +367,11 @@ def add_pickup_delivery_constraints(routing:pywrapcp.RoutingModel,
 
             routing.solver().Add(
                 time_dimension.CumulVar(index_pickup) <= time_dimension.CumulVar(index_delivery))
+            logger.debug('pickup time constraint added: index_pickup: {}, index_delivery: {}'.format(index_pickup, index_delivery))
+            
             routing.solver().Add(
                 routing.VehicleVar(index_pickup) == routing.VehicleVar(index_delivery))
+            logger.debug('pickup vehicle constraint added: index_pickup: {}, index_delivery: {}'.format(index_pickup, index_delivery))
 
             #######################################################################################################################
             # add constraint for maximum allowed travel times, see https://github.com/google/or-tools/issues/1388
@@ -373,14 +384,19 @@ def add_pickup_delivery_constraints(routing:pywrapcp.RoutingModel,
             time_travel_min_with_service = int(time_evaluator(pickup, delivery)+0.5)
             delta_allowed = 15
 
-            if time_travel_min > 15:
+            if time_travel_min > delta_allowed:
                 delta_allowed = time_travel_min
 
             # print('time_travel_min')
             # print(time_travel_min)
+                
+            # todo might be without any effect this way, the intended bc should be (?):
+            # time_dimension.CumulVar(index_pickup) <= time_dimension.CumulVar(index_delivery) + time_travel_min_with_service + delta_allowed)
 
-            routing.solver().Add(
+            routing.solver().Add(   
                 time_dimension.CumulVar(index_delivery) <= time_dimension.CumulVar(index_pickup) + time_travel_min_with_service + delta_allowed)
+            logger.debug('max travel time constraint added: index_pickup: {}, index_delivery: {}'.format(index_pickup, index_delivery))
+            
         else:
             logger.warning('Tried to add pickup and delivery at same node! Was ignored.')
 
@@ -399,9 +415,11 @@ def add_vehicle_work_time_constraints(routing:pywrapcp.RoutingModel,
         # remove time interval before the vehicle is ready
         index = routing.Start(vehicle_idx)
         time_dimension.CumulVar(index).RemoveInterval(-STNIMMERLEIN, vehicle.work_time[0])
+        logger.debug('Remove time interval for index {}: {}, {}'.format(index, -STNIMMERLEIN, vehicle.work_time[0]))
         # remove time interval after the vehicle is finished
         index = routing.End(vehicle_idx)
         time_dimension.CumulVar(index).RemoveInterval(vehicle.work_time[1], STNIMMERLEIN)
+        logger.debug('Remove time interval for index {}: {}, {}'.format(index, vehicle.work_time[1], STNIMMERLEIN))
 
 
 def add_mandatory_station_constraints(routing:pywrapcp.RoutingModel,
@@ -440,7 +458,8 @@ def add_station_closing_time_constraints(routing:pywrapcp.RoutingModel,
             for closing_window in station_closing_times[data.locations[location_idx].node_id]:
                 # simple adapting time windows is not a proper solution since the resulting time window may be cut into several time windows
                 # thus we use the built in RemoveInterval method and do not adapt the time window in the data
-                time_dimension.CumulVar(index).RemoveInterval(closing_window[0]-buffer_time, closing_window[1]+buffer_time)                
+                time_dimension.CumulVar(index).RemoveInterval(closing_window[0]-buffer_time, closing_window[1]+buffer_time)   
+                logger.debug('Remove time interval for index {}: {}, {}'.format(index, closing_window[0]-buffer_time, closing_window[1]+buffer_time))             
 
 def add_group_constraints(routing:pywrapcp.RoutingModel,
                           routingIndexManager:pywrapcp.RoutingIndexManager,
@@ -692,11 +711,16 @@ class BusTour:
         connection_start = False
         connection_stop = False
 
+        # we do not want to have rounding errors for promises, thus add a widening param
+        timewindowwider = 0
+        arrivalFixed = False
+
         if not promised:
+            timewindowwider = 0
+
             if moby.start_window is not None:
                 # departure was ordered
-                self.locations_arrival_fixed.append(False)
-                self.locations_arrival_fixed.append(False)
+                arrivalFixed = False
 
                 # 1. add not defined arrival window
                 moby.stop_window = moby.start_window[0], moby.start_window[1]+dT
@@ -705,8 +729,7 @@ class BusTour:
                 moby.start_window, connection_start = self.adjust_time_window_for_connecting_times(moby.start_window, moby.start_station, True)
             else:
                 # arrival was ordered
-                self.locations_arrival_fixed.append(True)
-                self.locations_arrival_fixed.append(True)
+                arrivalFixed = True
 
                 # 1. add not defined start window
                 moby.start_window = moby.stop_window[0]-dT, moby.stop_window[1]
@@ -714,12 +737,20 @@ class BusTour:
                 # 2. adjust arrival window for connecting times
                 moby.stop_window, connection_stop = self.adjust_time_window_for_connecting_times(moby.stop_window, moby.stop_station, False)  
         else:
-            # for promises we always assume that departure is the fixed time
-            self.locations_arrival_fixed.append(False)
-            self.locations_arrival_fixed.append(False)
+            timewindowwider = 1
 
-        self._time_windows.append(moby.start_window)
-        self._time_windows.append(moby.stop_window)
+            # for promises we always assume that departure is the fixed time
+            arrivalFixed = False
+        
+        self.locations_arrival_fixed.append(arrivalFixed)
+        self.locations_arrival_fixed.append(arrivalFixed)
+
+        if arrivalFixed:
+            self._time_windows.append((moby.start_window[0]-timewindowwider,moby.start_window[1]+timewindowwider))
+            self._time_windows.append((moby.stop_window[0]-timewindowwider,moby.stop_window[1]))
+        else:
+            self._time_windows.append((moby.start_window[0],moby.start_window[1]+timewindowwider))
+            self._time_windows.append((moby.stop_window[0]-timewindowwider,moby.stop_window[1]+timewindowwider))
 
         if connection_start:
             self.locations_connection.append('DepartureFixed')
@@ -733,7 +764,7 @@ class BusTour:
 
         # print(self.locations_connection)       
         # print(self.locations_arrival_fixed)       
-        # print(self._time_windows)       
+        #print(self._time_windows)       
 
         return group_id
 
@@ -1000,6 +1031,11 @@ class BusTour:
                 time_max: float = self.assignment.Max(time_var)
                 time_value: float = self.assignment.Value(time_var)    
 
+                # print('time_min_max_value optimizer')               
+                # print(time_min)               
+                # print(time_max)         
+                # print(time_value)         
+
                 # time windows for final paths are restricted, for future routings we do not want to change existing too much
                 slack_realized_lower = final_paths_slack
                 slack_realized_upper = final_paths_slack
@@ -1018,7 +1054,7 @@ class BusTour:
                     if time_max+1 <= path_time_windows[iIndex][1]:
                         time_max = time_max+1
 
-                # print('time_min_max')               
+                # print('time_min_max final')               
                 # print(time_min)               
                 # print(time_max)               
 
@@ -1047,7 +1083,9 @@ class BusTour:
                     time_max=time_max, hop_off=self.hop_offs[node_index],
                     hop_on=self.hop_ons[node_index], location_id=node_index,
                     capacity=capacity, lat=fromLat, lon=fromLon)
+                
                 self._final_paths[vehicle_idx].append(node)
+
                 # self._final_paths[vehicle_idx].append(
                 #     (from_node, time_min, time_max, self.hop_offs[node_index],
                 #      self.hop_ons[node_index]))
@@ -1114,7 +1152,8 @@ class BusTour:
             G=self.G,
             hop_offs=self.hop_offs,
             hop_ons=self.hop_ons)
-        return printer.print(hideOutput)
+        return printer.print(hideOutput)    
+    
 
 def new_routing(G: nx.DiGraph, ORSM_url: str, request: Moby, promises: dict[int, Moby], mandatory_stations, busses, options, apriori_times_matrix = {}):
     """ Solve a routing problem in one functional call. """    

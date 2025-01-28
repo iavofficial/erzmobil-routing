@@ -42,6 +42,17 @@ class Path:
 
 # Utility functions
 
+def moby2order(routing):
+    """ translate moby objects in solution nodes to order ids for external use """
+    out = dict()
+    for bus, nodes in routing.items():
+        out[bus] = []
+        for node in nodes:
+            hop_off = node.hop_off.order_id if node.hop_off else None
+            hop_on = node.hop_on.order_id if node.hop_on else None
+            out[bus].append(node._replace(hop_on=hop_on, hop_off=hop_off))
+    return out
+
 def travel_time(edge: Dict[str, float])->float:
     """Return estimated edge travel time in minutes."""
     if 'length' in edge:

@@ -32,6 +32,7 @@ class LocationManager(models.Manager):
                                                    latitude)))\
                    .filter(distance__lt=proximity)\
                    .order_by('distance')
+
 class Station(models.Model):
     uid = models.PositiveIntegerField(unique=True, null=False)
     name = models.CharField(max_length=256)
@@ -42,6 +43,7 @@ class Station(models.Model):
     mapId = models.CharField(max_length=256, null=True)
     def __str__(self):
         return f'<Station({self.name}/{self.mapId}, {self.community}, ({self.latitude}, {self.longitude}))>'
+
 class Bus(models.Model):
     uid  = models.PositiveIntegerField(unique=True)
     name = models.CharField(max_length=256, null=True)
@@ -51,6 +53,7 @@ class Bus(models.Model):
     capacity_blocked_per_wheelchair = models.IntegerField(null=False, default=2)
     latitude = models.FloatField(null=True, default=None)
     longitude = models.FloatField(null=True, default=None)
+    vehicleType = models.CharField(max_length=256, null=True, default='bus')
 
     def capa_sufficient_for_load(self, load_needed: MobyLoad):
         # print(load_needed.standardSeats)

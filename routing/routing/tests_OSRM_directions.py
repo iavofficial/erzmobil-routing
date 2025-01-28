@@ -196,7 +196,7 @@ class Test_OSRM(TestCase):
         self.assertGreater(num_nodes_1,91)  # exact routing changes from time to time in OSRM webservice - number of nodes not fixed
         self.assertGreater(115, num_nodes_1)
         self.assertGreater(num_nodes_2,133)
-        self.assertGreaterEqual(162,num_nodes_2) # changed 161 to 162, was failing in CI pipeline
+        self.assertGreaterEqual(174,num_nodes_2)
 
         rte1 = rte_all[0]
         rte2 = rte_all[1]

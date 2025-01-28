@@ -1,4 +1,4 @@
-Django>=4.2.0,<5.2.0
+Django
 django-health-check
 djangorestframework
 django-dbconn-retry
@@ -10,14 +10,14 @@ shapely
 gunicorn
 pyproj
 pyyaml
-pika==0.13
+pika
 raven
 numpy
 gevent
-celery==4.*
+celery
 coverage
 pytest-cov
 requests
 ortools
 osmnx
-psycopg2-binary==2.8.6
+psycopg2-binary

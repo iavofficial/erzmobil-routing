@@ -5,6 +5,8 @@ __pycache__/
 .vscode/
 *.log
 *.egg-info/
+*.bak
+*.py.bak
 
 # test database
 Routing_Api/db.sqlite3
@@ -12,17 +14,16 @@ Routing_Api/db.sqlite3
 # User-specific files
 *.suo
 *.user
-
-# Environments
-.env
 .venv
+venv
+.vs
+.temp
+
+# Python enviroments
 env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-04_API/Routing_Api/Routing_Api/Routing_Api/Mobis/lib/
+Routing_Api/Routing_Api/Routing_Api/Mobis/lib/
 .idea/
+
 routing/test_profile_stats_dump.txt
 routing/test_profile_graph.png
 routing/test_profile_stats_cumtime.txt

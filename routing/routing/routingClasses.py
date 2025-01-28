@@ -167,13 +167,19 @@ class VehicleCapacity:
 class Vehicle():
     """Stores the property of a vehicle"""
 
-    def __init__(self, capacity: VehicleCapacity, work_time: TimeWindow, start_location: Optional[MapNode]=None, stop_location: Optional[MapNode]=None)->None:
+    def __init__(self, capacity: VehicleCapacity, work_time: TimeWindow, start_location: Optional[MapNode]=None, stop_location: Optional[MapNode]=None, vehicleType: Optional[str] = 'bus')->None:
         """Initializes the vehicle properties"""
         self.id: str = str(uuid4())
         self._capacity: VehicleCapacity = capacity
         self._work_time = work_time
         self._start_location = start_location
         self._stop_location = stop_location
+        self._vehicleType = vehicleType
+
+    @property
+    def vehicleType(self)->str:
+        """Gets vehicle txpe"""
+        return self._vehicleType
 
     @property
     def capacity(self)->VehicleCapacity:
