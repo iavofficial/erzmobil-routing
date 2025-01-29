@@ -14,30 +14,31 @@ from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 
 from routing.errors import DuplicatedOrder
-from Routing_Api.mockups.db_busses import Busses, RoadClosures
+from Routing_Api.mockups.db_busses import Busses
+from Routing_Api.mockups.RoadClosures import RoadClosures
 from routing.maps import Maps
 from Routing_Api.mockups.stations import WebStations as Stations
-from Routing_Api.Mobis.services import OrdersMQ as Orders
-from Routing_Api.Mobis.services import RequestManager
-from Routing_Api.Mobis.services import RoutesDummy as Routes
-from Routing_Api.Mobis.services import SolverDummy as Solver
+from Routing_Api.Mobis.OrdersMQ import OrdersMQ as Orders
+from Routing_Api.Mobis.RequestManager import RequestManager
+from Routing_Api.Mobis.RoutesDummy import RoutesDummy as Routes
+from Routing_Api.Mobis.SolverDummy import SolverDummy as Solver
+
 from Routing_Api.Mobis.models import Bus, Node, Order, Route, Station
 from Routing_Api.Mobis.serializers import NodeSerializer, RouteSerializer
 from Routing_Api.Mobis.signals import RabbitMqListener as Listener
-from Routing_Api.Mobis.signals import RabbitMqSender as MessageBus
-from Routing_Api.Mobis.services import RequestManagerConfig
+from Routing_Api.Mobis.signals import RabbitMqSender as Publisher
+from Routing_Api.Mobis.RequestManagerConfig import RequestManagerConfig
 
 # do not change order of ortools imports - may lead to segfaults in docker images (issue #246)
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
 
 UTC = tzutc()
-API_URI = os.environ.get('BUSNOW_API_URI','http://busnow_directus:8055')
+API_URI = os.environ.get('BUSNOW_API_URI','http://directus:8055')
 # API_URI = 'http://directus:8055'
 print(API_URI)
 LOGGER = logging.getLogger(__name__)
 
-#print(dir())
 
 if os.environ.get('IS_CELERY_APP', 'no') != "yes":
     OSRM_url = None
@@ -69,7 +70,7 @@ if os.environ.get('IS_CELERY_APP', 'no') != "yes":
         OSRM_activated = OSRM_activated,
         OSRM_url = OSRM_url,
         Solver=Solver(),
-        Orders=Orders(MessageBus=MessageBus(), Listener=Listener()), RoadClosures=RoadClosures(API_URI))
+        Orders=Orders(MessageBus=Publisher(), Listener=Listener()), RoadClosures=RoadClosures(API_URI))
 
 def GetRequestManager()->RequestManager:
     return Requests

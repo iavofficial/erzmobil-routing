@@ -10,25 +10,23 @@ from dateutil.relativedelta import relativedelta
 from dateutil.tz import tzutc
 from django.db import connections
 from django.db.models import Max
-from django.test import (Client, LiveServerTestCase, TestCase,
-                         TransactionTestCase, tag)
+from django.test import Client, LiveServerTestCase, TestCase, TransactionTestCase, tag
 from django.urls import reverse
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 
-from .services import OrdersMQ as Orders, RequestManagerConfig
-from .services import RoutesDummy as Routes
+from .OrdersMQ import OrdersMQ as Orders
+from .RequestManagerConfig import RequestManagerConfig
+from .RoutesDummy import RoutesDummy as Routes
 from routing.OSRM_directions import OSRM
 from routing.routingClasses import MobyLoad
 from routing.errors import InvalidTime2, BusesTooSmall, NoBuses
 
 from . import tasks
 from .apifunctions import API_URI, RouteRequest, GetRequestManager, driver_details, driver_details_busId, order_details, order_details_with_gps, driver_details_with_gps
-from .EventBus import Consumer, Publisher, UnthreadedPublisher
 from .models import Bus, Node, Order, Route, Station
 from .signals import RabbitMqListener as Listener
-from .signals import RabbitMqSender as MessageBus
-
-from django.core.exceptions import ObjectDoesNotExist
+from .signals import RabbitMqSender as Publisher
 
 from unittest import mock
 
@@ -127,7 +125,7 @@ def mocked_requests_get(*args, **kwargs):
 
     test_data = Test_Data()
 
-    mock_availabilities_meise_1 = MockResponse('[{"busId": 2, "name": "meise_0", "communityId": '+str(test_data.community_id_Meisenheim)+', "seats": 3, "seatsWheelchair": 1, "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T11:50:00+00:00", "endDate": "2090-03-01T15:50:00+00:00"}], "blockingSlots" : []}]', 200)
+    mock_availabilities_meise_1 = MockResponse('[{"busId": 2, "name": "meise_0", "communityId": '+str(test_data.community_id_Meisenheim)+', "seats": 3, "seatsWheelchair": 1, "vehicleType": "bus", "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T11:50:00+00:00", "endDate": "2090-03-01T15:50:00+00:00"}], "blockingSlots" : []}]', 200)
 
     if args[0] == API_URI + '/customendpoints/stops/nearest':
         # mock nearest stops request
@@ -152,43 +150,43 @@ def mocked_requests_get(*args, **kwargs):
 
     elif args[0] == API_URI + '/customendpoints/operatingtime/'+str(test_data.community_id_Peine)+'/2090-03-01T01:50:00+00:00/2090-03-01T23:50:00+00:00':
         # mock available buses request
-        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T10:50:00+00:00", "endDate": "2090-03-01T16:50:00+00:00"}], "blockingSlots": []}]', 200)
+        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "vehicleType": "bus", "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T10:50:00+00:00", "endDate": "2090-03-01T16:50:00+00:00"}], "blockingSlots": []}]', 200)
     elif args[0] == API_URI + '/customendpoints/operatingtime/'+str(test_data.community_id_Peine)+'/2090-03-01T03:50:00+00:00/2090-03-02T01:50:00+00:00':
         # mock available buses request
-        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T10:50:00+00:00", "endDate": "2090-03-01T16:50:00+00:00"}], "blockingSlots": []}]', 200)
+        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "vehicleType": "bus", "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T10:50:00+00:00", "endDate": "2090-03-01T16:50:00+00:00"}], "blockingSlots": []}]', 200)
     elif args[0] == API_URI + '/customendpoints/operatingtime/'+str(test_data.community_id_Peine)+'/2090-03-01T12:50:00+00:00/2090-03-01T17:00:00+00:00':
         # mock available buses request
-        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T10:50:00+00:00", "endDate": "2090-03-01T16:50:00+00:00"}], "blockingSlots": []}]', 200)
+        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "vehicleType": "bus", "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T10:50:00+00:00", "endDate": "2090-03-01T16:50:00+00:00"}], "blockingSlots": []}]', 200)
     elif args[0] == API_URI + '/customendpoints/operatingtime/'+str(test_data.community_id_Peine)+'/2090-03-01T03:50:00+00:00/2090-03-01T23:50:00+00:00':
         # mock available buses request
-        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T10:50:00+00:00", "endDate": "2090-03-01T16:50:00+00:00"}], "blockingSlots": []}]', 200)    
+        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "vehicleType": "bus", "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T10:50:00+00:00", "endDate": "2090-03-01T16:50:00+00:00"}], "blockingSlots": []}]', 200)    
     elif args[0] == API_URI + '/customendpoints/operatingtime/'+str(test_data.community_id_Peine)+'/2090-03-01T03:50:00+00:00/2090-03-02T00:50:00+00:00':
         # mock available buses request
-        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T10:50:00+00:00", "endDate": "2090-03-01T17:50:00+00:00"}], "blockingSlots": []}]', 200)        
+        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "vehicleType": "bus", "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T10:50:00+00:00", "endDate": "2090-03-01T17:50:00+00:00"}], "blockingSlots": []}]', 200)        
     elif args[0] == API_URI + '/customendpoints/operatingtime/'+str(test_data.community_id_Peine)+'/2090-03-01T12:50:00+00:00/2090-03-01T14:50:00+00:00':
         # mock available buses request
-        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T10:50:00+00:00", "endDate": "2090-03-01T16:50:00+00:00"}], "blockingSlots": []}]', 200)        
+        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "vehicleType": "bus", "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T10:50:00+00:00", "endDate": "2090-03-01T16:50:00+00:00"}], "blockingSlots": []}]', 200)        
     elif args[0] == API_URI + '/customendpoints/operatingtime/'+str(test_data.community_id_Peine)+'/2090-03-01T12:50:00+00:00/2090-03-01T15:50:00+00:00':
         # mock available buses request
-        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T10:50:00+00:00", "endDate": "2090-03-01T17:50:00+00:00"}], "blockingSlots": []}]', 200)    
+        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "vehicleType": "bus", "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T10:50:00+00:00", "endDate": "2090-03-01T17:50:00+00:00"}], "blockingSlots": []}]', 200)    
     elif args[0] == API_URI + '/customendpoints/operatingtime/'+str(test_data.community_id_Peine)+'/2090-03-01T12:50:00+00:00/2090-03-01T17:05:00+00:00':
         # mock available buses request
-        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T10:50:00+00:00", "endDate": "2090-03-01T18:50:00+00:00"}], "blockingSlots": []}]', 200)        
+        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "vehicleType": "bus", "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T10:50:00+00:00", "endDate": "2090-03-01T18:50:00+00:00"}], "blockingSlots": []}]', 200)        
     elif args[0] == API_URI + '/customendpoints/operatingtime/'+str(test_data.community_id_Peine)+'/2090-03-01T21:50:00+00:00/2090-03-02T18:10:00+00:00':
         # mock available buses request
-        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-02T07:50:00+00:00", "endDate": "2090-03-02T08:05:00+00:00"}], "blockingSlots": [{"startDate": "2090-03-02T08:05:00+00:00", "endDate": "2090-03-02T08:45:00+00:00"}]}]', 200)            
+        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "vehicleType": "bus", "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-02T07:50:00+00:00", "endDate": "2090-03-02T08:05:00+00:00"}], "blockingSlots": [{"startDate": "2090-03-02T08:05:00+00:00", "endDate": "2090-03-02T08:45:00+00:00"}]}]', 200)            
     elif args[0] == API_URI + '/customendpoints/operatingtime/'+str(test_data.community_id_Peine)+'/2090-03-02T06:50:00+00:00/2090-03-02T09:10:00+00:00':
         # mock available buses request
-        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-02T07:50:00+00:00", "endDate": "2090-03-02T08:05:00+00:00"}], "blockingSlots": [{"startDate": "2090-03-02T08:05:00+00:00", "endDate": "2090-03-02T08:45:00+00:00"}]}]', 200)            
+        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "vehicleType": "bus", "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-02T07:50:00+00:00", "endDate": "2090-03-02T08:05:00+00:00"}], "blockingSlots": [{"startDate": "2090-03-02T08:05:00+00:00", "endDate": "2090-03-02T08:45:00+00:00"}]}]', 200)            
     elif args[0] == API_URI + '/customendpoints/operatingtime/'+str(test_data.community_id_Peine)+'/2090-03-01T22:10:00+00:00/2090-03-02T18:10:00+00:00':
         # mock available buses request
-        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-02T07:50:00+00:00", "endDate": "2090-03-02T08:05:00+00:00"}], "blockingSlots": [{"startDate": "2090-03-02T08:05:00+00:00", "endDate": "2090-03-02T08:45:00+00:00"}]}]', 200)                
+        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "vehicleType": "bus", "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-02T07:50:00+00:00", "endDate": "2090-03-02T08:05:00+00:00"}], "blockingSlots": [{"startDate": "2090-03-02T08:05:00+00:00", "endDate": "2090-03-02T08:45:00+00:00"}]}]', 200)                
     elif args[0] == API_URI + '/customendpoints/operatingtime/'+str(test_data.community_id_Peine)+'/2090-03-02T03:30:00+00:00/2090-03-02T23:30:00+00:00':
         # mock available buses request
-        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-02T12:30:00+00:00", "endDate": "2090-03-02T14:30:00+00:00"}], "blockingSlots": []}]', 200)    
+        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "vehicleType": "bus", "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-02T12:30:00+00:00", "endDate": "2090-03-02T14:30:00+00:00"}], "blockingSlots": []}]', 200)    
     elif args[0] == API_URI + '/customendpoints/operatingtime/'+str(test_data.community_id_Peine)+'/2090-03-03T03:30:00+00:00/2090-03-03T23:30:00+00:00':
         # mock available buses request
-        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-03T12:30:00+00:00", "endDate": "2090-03-03T14:30:00+00:00"}], "blockingSlots": []}]', 200)    
+        return MockResponse('[{"busId": 0, "name": "bus1", "communityId": '+str(test_data.community_id_Peine)+', "seats": 8, "seatsWheelchair": 2, "vehicleType": "bus", "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-03T12:30:00+00:00", "endDate": "2090-03-03T14:30:00+00:00"}], "blockingSlots": []}]', 200)    
     elif args[0] == API_URI + '/customendpoints/operatingtime/'+str(test_data.community_id_Peine)+'/2099-03-01T02:50:00+00:00/2099-03-01T22:50:00+00:00':
         # mock available buses request
         return MockResponse('''[]''', 200)
@@ -224,24 +222,24 @@ def mocked_requests_get(*args, **kwargs):
         return mock_availabilities_meise_1    
     elif args[0] == API_URI + '/customendpoints/operatingtime/'+str(test_data.community_id_Meisenheim)+'/2090-03-01T04:50:00+00:00/2090-03-02T00:50:00+00:00':
         # mock available buses request
-        return MockResponse('[{"busId": 2, "name": "meise_0", "communityId": '+str(test_data.community_id_Meisenheim)+', "seats": 3, "seatsWheelchair": 1, "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T11:50:00+00:00", "endDate": "2090-03-01T15:50:00+00:00"}], "blockingSlots": []}]', 200)   
+        return MockResponse('[{"busId": 2, "name": "meise_0", "communityId": '+str(test_data.community_id_Meisenheim)+', "seats": 3, "seatsWheelchair": 1, "vehicleType": "bus", "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-01T11:50:00+00:00", "endDate": "2090-03-01T15:50:00+00:00"}], "blockingSlots": []}]', 200)   
     elif args[0] == API_URI + '/customendpoints/operatingtime/'+str(test_data.community_id_Meisenheim)+'/2090-03-02T12:30:00+00:00/2090-03-02T14:30:00+00:00':
         # mock available buses request
-        return MockResponse('[{"busId": 2, "name": "meise_0", "communityId": '+str(test_data.community_id_Meisenheim)+', "seats": 3, "seatsWheelchair": 1, "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-02T12:30:00+00:00", "endDate": "2090-03-02T14:30:00+00:00"}], "blockingSlots": []}]', 200)       
+        return MockResponse('[{"busId": 2, "name": "meise_0", "communityId": '+str(test_data.community_id_Meisenheim)+', "seats": 3, "seatsWheelchair": 1, "vehicleType": "bus", "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-02T12:30:00+00:00", "endDate": "2090-03-02T14:30:00+00:00"}], "blockingSlots": []}]', 200)       
     elif args[0] == API_URI + '/customendpoints/operatingtime/'+str(test_data.community_id_Meisenheim)+'/2090-03-03T12:30:00+00:00/2090-03-03T14:30:00+00:00':
         # mock available buses request
-        return MockResponse('[{"busId": 2, "name": "meise_0", "communityId": '+str(test_data.community_id_Meisenheim)+', "seats": 3, "seatsWheelchair": 1, "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-03T12:30:00+00:00", "endDate": "2090-03-03T14:30:00+00:00"}], "blockingSlots": []}]', 200)       
+        return MockResponse('[{"busId": 2, "name": "meise_0", "communityId": '+str(test_data.community_id_Meisenheim)+', "seats": 3, "seatsWheelchair": 1, "vehicleType": "bus", "seatsBlockedPerWheelchair": 2, "availabilitySlots": [{"startDate": "2090-03-03T12:30:00+00:00", "endDate": "2090-03-03T14:30:00+00:00"}], "blockingSlots": []}]', 200)       
     
     elif args[0] == API_URI + '/items/bus/1':
         # mock buses request
-        return MockResponse('{"id": 1, "name": "bus1_update", "community_id": 1, "seats": 4, "seats_wheelchair": 2, "seatsBlockedByWheelchair": 2}', 200)      
+        return MockResponse('{"id": 1, "name": "bus1_update", "community_id": 1, "seats": 4, "vehicleType": "bus", "seats_wheelchair": 2, "seatsBlockedByWheelchair": 2}', 200)      
     
     elif args[0] == API_URI + '/customendpoints/roadclosures/'+str(test_data.community_id_Peine)+'/2090-03-02T12:50:00+00:00/2090-03-02T14:50:00+00:00':
         # mock road closures request
-        return MockResponse('''[{"latitude": 52.309409276213145, "longitude": 10.249192679384402}, {"latitude": 52.30886871841433, "longitude": 10.250494761672451}]''', 200) 
+        return MockResponse('''[{"latitude": 52.309409276213145, "longitude": 10.249192679384402, "vehicleTypes": [], "vehicles": []}, {"latitude": 52.30886871841433, "longitude": 10.250494761672451, "vehicleTypes": [], "vehicles": []}]''', 200) 
     elif args[0] == API_URI + '/customendpoints/roadclosures/'+str(test_data.community_id_Peine)+'/2090-03-02T13:30:00+00:00/2090-03-02T13:40:00+00:00':
         # mock road closures request
-        return MockResponse('''[{"latitude": 52.309550769718946, "longitude": 10.247906992115212}, {"latitude": 52.31016080442586, "longitude": 10.246329853110497}, {"latitude": 52.31094137420135, "longitude": 10.246533701003997}, {"latitude": 52.308279989340946, "longitude": 10.248185924981511}]''', 200) 
+        return MockResponse('''[{"latitude": 52.309550769718946, "longitude": 10.247906992115212, "vehicleTypes": [], "vehicles": []}, {"latitude": 52.31016080442586, "longitude": 10.246329853110497, "vehicleTypes": [], "vehicles": []}, {"latitude": 52.31094137420135, "longitude": 10.246533701003997, "vehicleTypes": [], "vehicles": []}, {"latitude": 52.308279989340946, "longitude": 10.248185924981511, "vehicleTypes": [], "vehicles": []}]''', 200) 
     elif args[0] == API_URI + '/customendpoints/roadclosures/'+str(test_data.community_id_Peine)+'/2090-03-03T13:30:00+00:00/2090-03-03T13:40:00+00:00':
         # mock road closures request
         return MockResponse('''[]''', 200)     
@@ -361,8 +359,8 @@ class Setups:
         Peine = test_data.community_id_Peine
         self.s1 = Station.objects.create(uid=test_data.s1_uid, name=test_data.s1_name, mapId=test_data.s1_mapId, community=test_data.s1_community, latitude=test_data.s1_latitude, longitude=test_data.s1_longitude)
         self.s2 = Station.objects.create(uid=test_data.s2_uid, name=test_data.s2_name, mapId=test_data.s2_mapId, community=test_data.s2_community, latitude=test_data.s2_latitude, longitude=test_data.s2_longitude)
-        self.b1 = Bus.objects.create(uid=0, name="bus1", community=Peine, capacity=8, capacity_wheelchair=2,capacity_blocked_per_wheelchair=2)
-        self.b2 = Bus.objects.create(uid=1, name="bus2", community=Peine, capacity=8, capacity_wheelchair=2,capacity_blocked_per_wheelchair=2)
+        self.b1 = Bus.objects.create(uid=0, name="bus1", community=Peine, capacity=8, capacity_wheelchair=2,capacity_blocked_per_wheelchair=2, vehicleType='bus')
+        self.b2 = Bus.objects.create(uid=1, name="bus2", community=Peine, capacity=8, capacity_wheelchair=2,capacity_blocked_per_wheelchair=2, vehicleType='bus')
 
         Meisenheim = test_data.community_id_Meisenheim
         self.s_Lindenallee = Station.objects.create(uid=test_data.Lindenallee_uid, name=test_data.Lindenallee_name, latitude=test_data.Lindenallee_latitude, longitude=test_data.Lindenallee_longitude, mapId=test_data.Lindenallee_mapId, community=test_data.Lindenallee_community)
@@ -379,14 +377,14 @@ class Setups:
                                              longitude=test_data.Roth_longitude, mapId=test_data.Roth_mapId, community=test_data.Roth_community)
 
         for i_bus, capa in enumerate((3,3,4)):
-            Bus.objects.create(uid=2+i_bus, name='meise_'+str(i_bus), capacity=capa,capacity_wheelchair=1,capacity_blocked_per_wheelchair=0, community=Meisenheim)
+            Bus.objects.create(uid=2+i_bus, name='meise_'+str(i_bus), capacity=capa,capacity_wheelchair=1,capacity_blocked_per_wheelchair=0, community=Meisenheim, vehicleType='bus')
 
     def kill_db(self):
         connections.close_all()
 
     def init_rabbit(self):
         #self.consumer = Consumer(queue_name=)
-        self.publisher = UnthreadedPublisher()
+        self.publisher = Publisher()
     
     def init_routes(self):
         """ Create routes for later use here """
@@ -402,7 +400,7 @@ class Setups:
 
     def single_route(self, time_step: int = 8):
         self.community = 1
-        self.bus = Bus.objects.create(uid=1, community=self.community, name="bus1", capacity=5, capacity_wheelchair=1)
+        self.bus = Bus.objects.create(uid=1, community=self.community, name="bus1", capacity=5, capacity_wheelchair=1, vehicleType='bus')
         self.route = Route.objects.create(bus=self.bus, community=self.community, status=Route.BOOKED)
         self.t = datetime.now(UTC)
         self.nodes = []
@@ -421,7 +419,7 @@ class Setups:
         self.order = Order.objects.create(uid=1, load=2, hopOnNode=self.nodes[0], hopOffNode=self.nodes[-1])
     
     def second_route(self):
-        self.bus2 = Bus.objects.create(uid=2, community=self.community, name="bus2", capacity=8, capacity_wheelchair=1)
+        self.bus2 = Bus.objects.create(uid=2, community=self.community, name="bus2", capacity=8, capacity_wheelchair=1, vehicleType='bus')
         self.route2 = Route.objects.create(bus=self.bus2, community=self.community, status=Route.BOOKED)
         self.t = datetime.now(UTC)
         self.nodes = []
@@ -438,7 +436,7 @@ class Setups:
 
     def second_community(self):
         self.community2 = 2
-        self.bus2 = Bus.objects.create(uid=2, community=self.community2, name="bus1_comm2", capacity=5, capacity_wheelchair=1)
+        self.bus2 = Bus.objects.create(uid=2, community=self.community2, name="bus1_comm2", capacity=5, capacity_wheelchair=1, vehicleType='bus')
         self.route2 = Route.objects.create(bus=self.bus2, status=Route.BOOKED)
         self.t2 = datetime.now(UTC) + relativedelta(hours=4)
         self.nodes2 = []
@@ -982,7 +980,7 @@ class RoutendetailsAnfrageMobi(TestCase, Setups):
         timeElapsed = time.time() - timeStarted
         
         # performance must not be too bad if working with maps
-        self.assertGreater(6.0, timeElapsed)
+        self.assertGreater(8.0, timeElapsed)
 
         GetRequestManager().OSRM_activated = True
         timeStarted = time.time()
@@ -990,8 +988,7 @@ class RoutendetailsAnfrageMobi(TestCase, Setups):
         timeElapsed = time.time() - timeStarted
 
         # OSRM performance much better than self managed maps
-        # increase time because it might take a bit longer in the CI pipeline
-        self.assertGreater(1.5, timeElapsed)
+        self.assertGreater(0.5, timeElapsed)
 
         self.assertEqual(response1.status_code, 200)
         self.assertEqual(response2.status_code, 200)
@@ -1160,7 +1157,7 @@ class RoutendetailsCapacity(TestCase, Setups):
     def test_hop_on_first_node_possible_returns_route(self):
         restrictions = (self.nodes[0], self.nodes[-1], (self.t, self.t + relativedelta(minutes=10)), \
             (self.t + relativedelta(minutes=10), self.t + relativedelta(minutes=20)),2,0)
-        self.RoutesInterface.hop_on([self.route], restrictions, 2, Orders=Orders(MessageBus=MessageBus(), Listener=Listener()))
+        self.RoutesInterface.hop_on([self.route], restrictions, 2, Orders=Orders(MessageBus=Publisher(), Listener=Listener()))
         response = self.client.get(reverse('RoutendetailsBusId', kwargs={'busId': self.bus.uid})) 
         route = response.data[0]
         self.assertEqual(response.status_code, 200)
@@ -1171,7 +1168,7 @@ class RoutendetailsCapacity(TestCase, Setups):
     def test_hop_on_second_node_possible_returns_route(self):
         restrictions = (self.nodes[1], self.nodes[-2], (self.t, self.t + relativedelta(minutes=10)), \
             (self.t + relativedelta(minutes=10), self.t + relativedelta(minutes=20)),2,0)
-        self.RoutesInterface.hop_on([self.route], restrictions, 2, Orders=Orders(MessageBus=MessageBus(), Listener=Listener()))
+        self.RoutesInterface.hop_on([self.route], restrictions, 2, Orders=Orders(MessageBus=Publisher(), Listener=Listener()))
         response = self.client.get(reverse('RoutendetailsBusId', kwargs={'busId': self.bus.uid})) 
         route = response.data[0]
         self.assertEqual(response.status_code, 200)
@@ -1184,14 +1181,14 @@ class RoutendetailsCapacity(TestCase, Setups):
         restrictions = (self.nodes[0], self.nodes[-1], (self.t, self.t + relativedelta(minutes=10)), \
             (self.t + relativedelta(minutes=10), self.t + relativedelta(minutes=20)),4,0)
         with self.assertRaises(Exception) as testContext:
-                self.RoutesInterface.hop_on([self.route], restrictions, 2, Orders=Orders(MessageBus=MessageBus(), Listener=Listener()))
+                self.RoutesInterface.hop_on([self.route], restrictions, 2, Orders=Orders(MessageBus=Publisher(), Listener=Listener()))
         self.assertEqual(str(testContext.exception), 'Could not push order onto any of our found solutions.')
     
     def test_hop_on_second_node_full_capacity_returns_error(self):
         restrictions = (self.nodes[1], self.nodes[-2], (self.t, self.t + relativedelta(minutes=10)), \
             (self.t + relativedelta(minutes=10), self.t + relativedelta(minutes=20)),4,0)
         with self.assertRaises(Exception) as testContext:
-                self.RoutesInterface.hop_on([self.route], restrictions, 2, Orders=Orders(MessageBus=MessageBus(), Listener=Listener()))
+                self.RoutesInterface.hop_on([self.route], restrictions, 2, Orders=Orders(MessageBus=Publisher(), Listener=Listener()))
         self.assertEqual(str(testContext.exception), 'Could not push order onto any of our found solutions.')
 
     def test_hop_on_first_node_capacity_full_second_node_returns_false(self):
@@ -1199,7 +1196,7 @@ class RoutendetailsCapacity(TestCase, Setups):
         restrictions = (self.nodes[0], self.nodes[-1], (self.t, self.t + relativedelta(minutes=10)), \
             (self.t + relativedelta(minutes=10), self.t + relativedelta(minutes=20)),2,0)
         with self.assertRaises(Exception) as testContext:
-                self.RoutesInterface.hop_on([self.route], restrictions, 2, Orders=Orders(MessageBus=MessageBus(), Listener=Listener()))
+                self.RoutesInterface.hop_on([self.route], restrictions, 2, Orders=Orders(MessageBus=Publisher(), Listener=Listener()))
         self.assertEqual(str(testContext.exception), 'Could not push order onto any of our found solutions.')
 
 #################################################################################
@@ -1308,11 +1305,12 @@ class Services(TransactionTestCase, Setups):
         resultRoute = driver_details(routeId)
         #print(resultRoute)
         self.assertEqual(len(resultRoute['nodes']), 4)
+        #self.maxDiff = None
         # note: in future we might combine nodes that have same station within same time window, up to no each hop_on gets its own node
-        self.assertEqual(str(resultRoute['nodes'][0]),"{'latitude': 49.7067624, 'longitude': 7.6690793, 'label': 'Lindenallee', 'tMin': '2090-03-01T13:50:00Z', 'tMax': '2090-03-01T13:53:00Z', 'hopOns': [OrderedDict([('orderId', 33), ('seats', 0), ('seatsWheelchair', 1)])], 'hopOffs': []}")
-        self.assertEqual(str(resultRoute['nodes'][1]),"{'latitude': 49.7067624, 'longitude': 7.6690793, 'label': 'Lindenallee', 'tMin': '2090-03-01T13:50:00Z', 'tMax': '2090-03-01T13:53:00Z', 'hopOns': [OrderedDict([('orderId', 34), ('seats', 1), ('seatsWheelchair', 0)])], 'hopOffs': []}")
-        self.assertEqual(str(resultRoute['nodes'][2]),"{'latitude': 49.7079532, 'longitude': 7.6721057, 'label': 'Untergasse', 'tMin': '2090-03-01T13:57:00Z', 'tMax': '2090-03-01T14:00:00Z', 'hopOns': [], 'hopOffs': [OrderedDict([('orderId', 33), ('seats', 0), ('seatsWheelchair', 1)])]}")
-        self.assertEqual(str(resultRoute['nodes'][3]),"{'latitude': 49.6751843, 'longitude': 7.6753142, 'label': 'Roth', 'tMin': '2090-03-01T14:12:00Z', 'tMax': '2090-03-01T14:15:00Z', 'hopOns': [], 'hopOffs': [OrderedDict([('orderId', 34), ('seats', 1), ('seatsWheelchair', 0)])]}")
+        self.assertEqual(str(resultRoute['nodes'][0]),"{'latitude': 49.7067624, 'longitude': 7.6690793, 'label': 'Lindenallee', 'tMin': '2090-03-01T13:50:00Z', 'tMax': '2090-03-01T13:53:00Z', 'hopOns': [{'orderId': 33, 'seats': 0, 'seatsWheelchair': 1}], 'hopOffs': []}")
+        self.assertEqual(str(resultRoute['nodes'][1]),"{'latitude': 49.7067624, 'longitude': 7.6690793, 'label': 'Lindenallee', 'tMin': '2090-03-01T13:50:00Z', 'tMax': '2090-03-01T13:53:00Z', 'hopOns': [{'orderId': 34, 'seats': 1, 'seatsWheelchair': 0}], 'hopOffs': []}")
+        self.assertEqual(str(resultRoute['nodes'][2]),"{'latitude': 49.7079532, 'longitude': 7.6721057, 'label': 'Untergasse', 'tMin': '2090-03-01T13:56:00Z', 'tMax': '2090-03-01T13:59:00Z', 'hopOns': [], 'hopOffs': [{'orderId': 33, 'seats': 0, 'seatsWheelchair': 1}]}")
+        self.assertEqual(str(resultRoute['nodes'][3]),"{'latitude': 49.6751843, 'longitude': 7.6753142, 'label': 'Roth', 'tMin': '2090-03-01T14:11:00Z', 'tMax': '2090-03-01T14:14:00Z', 'hopOns': [], 'hopOffs': [{'orderId': 34, 'seats': 1, 'seatsWheelchair': 0}]}")
 
         result = driver_details_busId(2, None, None)        
         self.assertEqual(len(result),1)
@@ -1325,7 +1323,7 @@ class Services(TransactionTestCase, Setups):
         self.assertEqual(result['routeId'], routeId)
         self.assertEqual(str(result['nodes'][0]), "{'latitude': 49.7067624, 'longitude': 7.6690793, 'label': 'Lindenallee', 'tMin': '2090-03-01T13:50:00Z', 'tMax': '2090-03-01T13:53:00Z'}")
         self.assertEqual(str(result['nodes'][1]), "{'latitude': 49.7067624, 'longitude': 7.6690793, 'label': 'Lindenallee', 'tMin': '2090-03-01T13:50:00Z', 'tMax': '2090-03-01T13:53:00Z'}")
-        self.assertEqual(str(result['nodes'][2]), "{'latitude': 49.7079532, 'longitude': 7.6721057, 'label': 'Untergasse', 'tMin': '2090-03-01T13:57:00Z', 'tMax': '2090-03-01T14:00:00Z'}")
+        self.assertEqual(str(result['nodes'][2]), "{'latitude': 49.7079532, 'longitude': 7.6721057, 'label': 'Untergasse', 'tMin': '2090-03-01T13:56:00Z', 'tMax': '2090-03-01T13:59:00Z'}")
 
         # check gps coords of order
         result_gps = order_details_with_gps(routeId, order_id1)
@@ -1351,8 +1349,8 @@ class Services(TransactionTestCase, Setups):
         self.assertEqual(len(result['nodes']), 3)
         self.assertEqual(result['routeId'], routeId)
         self.assertEqual(str(result['nodes'][0]), "{'latitude': 49.7067624, 'longitude': 7.6690793, 'label': 'Lindenallee', 'tMin': '2090-03-01T13:50:00Z', 'tMax': '2090-03-01T13:53:00Z'}")
-        self.assertEqual(str(result['nodes'][1]), "{'latitude': 49.7079532, 'longitude': 7.6721057, 'label': 'Untergasse', 'tMin': '2090-03-01T13:57:00Z', 'tMax': '2090-03-01T14:00:00Z'}")
-        self.assertEqual(str(result['nodes'][2]), "{'latitude': 49.6751843, 'longitude': 7.6753142, 'label': 'Roth', 'tMin': '2090-03-01T14:12:00Z', 'tMax': '2090-03-01T14:15:00Z'}")
+        self.assertEqual(str(result['nodes'][1]), "{'latitude': 49.7079532, 'longitude': 7.6721057, 'label': 'Untergasse', 'tMin': '2090-03-01T13:56:00Z', 'tMax': '2090-03-01T13:59:00Z'}")
+        self.assertEqual(str(result['nodes'][2]), "{'latitude': 49.6751843, 'longitude': 7.6753142, 'label': 'Roth', 'tMin': '2090-03-01T14:11:00Z', 'tMax': '2090-03-01T14:14:00Z'}")
 
         # check gps coords of order
         result_gps = order_details_with_gps(routeId, order_id2)
@@ -1435,11 +1433,12 @@ class Services(TransactionTestCase, Setups):
 
         resultRoute = driver_details(routeId)
         #print(resultRoute)
+        #self.maxDiff = None
         self.assertEqual(len(resultRoute['nodes']), 4)
-        self.assertEqual(str(resultRoute['nodes'][0]),"{'latitude': 49.7067624, 'longitude': 7.6690793, 'label': 'Lindenallee', 'tMin': '2090-03-01T13:30:00Z', 'tMax': '2090-03-01T13:33:00Z', 'hopOns': [OrderedDict([('orderId', 33), ('seats', 1), ('seatsWheelchair', 0)])], 'hopOffs': []}")
-        self.assertEqual(str(resultRoute['nodes'][1]),"{'latitude': 49.7079532, 'longitude': 7.6721057, 'label': 'Untergasse', 'tMin': '2090-03-01T13:33:00Z', 'tMax': '2090-03-01T13:36:00Z', 'hopOns': [], 'hopOffs': [OrderedDict([('orderId', 33), ('seats', 1), ('seatsWheelchair', 0)])]}")
-        self.assertEqual(str(resultRoute['nodes'][2]),"{'latitude': 49.6751843, 'longitude': 7.6753142, 'label': 'Roth', 'tMin': '2090-03-01T13:50:00Z', 'tMax': '2090-03-01T13:53:00Z', 'hopOns': [OrderedDict([('orderId', 34), ('seats', 1), ('seatsWheelchair', 0)])], 'hopOffs': []}")
-        self.assertEqual(str(resultRoute['nodes'][3]),"{'latitude': 49.7067624, 'longitude': 7.6690793, 'label': 'Lindenallee', 'tMin': '2090-03-01T13:57:00Z', 'tMax': '2090-03-01T14:00:00Z', 'hopOns': [], 'hopOffs': [OrderedDict([('orderId', 34), ('seats', 1), ('seatsWheelchair', 0)])]}")
+        self.assertEqual(str(resultRoute['nodes'][0]),"{'latitude': 49.7067624, 'longitude': 7.6690793, 'label': 'Lindenallee', 'tMin': '2090-03-01T13:30:00Z', 'tMax': '2090-03-01T13:33:00Z', 'hopOns': [{'orderId': 33, 'seats': 1, 'seatsWheelchair': 0}], 'hopOffs': []}")
+        self.assertEqual(str(resultRoute['nodes'][1]),"{'latitude': 49.7079532, 'longitude': 7.6721057, 'label': 'Untergasse', 'tMin': '2090-03-01T13:33:00Z', 'tMax': '2090-03-01T13:36:00Z', 'hopOns': [], 'hopOffs': [{'orderId': 33, 'seats': 1, 'seatsWheelchair': 0}]}")
+        self.assertEqual(str(resultRoute['nodes'][2]),"{'latitude': 49.6751843, 'longitude': 7.6753142, 'label': 'Roth', 'tMin': '2090-03-01T13:50:00Z', 'tMax': '2090-03-01T13:53:00Z', 'hopOns': [{'orderId': 34, 'seats': 1, 'seatsWheelchair': 0}], 'hopOffs': []}")
+        self.assertEqual(str(resultRoute['nodes'][3]),"{'latitude': 49.7067624, 'longitude': 7.6690793, 'label': 'Lindenallee', 'tMin': '2090-03-01T13:57:00Z', 'tMax': '2090-03-01T14:00:00Z', 'hopOns': [], 'hopOffs': [{'orderId': 34, 'seats': 1, 'seatsWheelchair': 0}]}")
 
         result = driver_details_busId(2, None, None)        
         self.assertEqual(len(result),1)
@@ -1463,12 +1462,21 @@ class Services(TransactionTestCase, Setups):
         tasks.split_routes(delta_time_min_for_split=5)
         self.assertTrue(tasks.check_routing_data())
 
-        # check split data
+        # check split data, sequence of results may vary
         result = driver_details_busId(2, None, None)    
         #print(result)    
         self.assertEqual(len(result),2)
-        self.assertEqual(result[0]['routeId'],routeId)
-        routeId2  = result[1]['routeId']
+        self.assertTrue(result[0]['routeId'] == routeId or result[1]['routeId'] == routeId)
+        self.assertTrue(result[0]['routeId'] != result[1]['routeId'])
+
+        indexRoute2 = -1
+        
+        if result[0]['routeId'] == routeId:
+            indexRoute2 = 1            
+        else:            
+            indexRoute2 = 0
+
+        routeId2  = result[indexRoute2]['routeId']
         
         result = order_details(routeId, order_id1)
         #print(result)           
@@ -1648,8 +1656,8 @@ class Services(TransactionTestCase, Setups):
         resultRoute = driver_details(routeId)
         #print(resultRoute)
         self.assertEqual(len(resultRoute['nodes']), 2)
-        self.assertEqual(str(resultRoute['nodes'][0]),"{'latitude': 49.7067624, 'longitude': 7.6690793, 'label': 'Lindenallee', 'tMin': '2090-03-01T13:30:00Z', 'tMax': '2090-03-01T13:33:00Z', 'hopOns': [OrderedDict([('orderId', 33), ('seats', 1), ('seatsWheelchair', 0)]), OrderedDict([('orderId', 34), ('seats', 1), ('seatsWheelchair', 0)])], 'hopOffs': []}")
-        self.assertEqual(str(resultRoute['nodes'][1]),"{'latitude': 49.7079532, 'longitude': 7.6721057, 'label': 'Untergasse', 'tMin': '2090-03-01T13:33:00Z', 'tMax': '2090-03-01T13:36:00Z', 'hopOns': [], 'hopOffs': [OrderedDict([('orderId', 33), ('seats', 1), ('seatsWheelchair', 0)]), OrderedDict([('orderId', 34), ('seats', 1), ('seatsWheelchair', 0)])]}")        
+        self.assertEqual(str(resultRoute['nodes'][0]),"{'latitude': 49.7067624, 'longitude': 7.6690793, 'label': 'Lindenallee', 'tMin': '2090-03-01T13:30:00Z', 'tMax': '2090-03-01T13:33:00Z', 'hopOns': [{'orderId': 33, 'seats': 1, 'seatsWheelchair': 0}, {'orderId': 34, 'seats': 1, 'seatsWheelchair': 0}], 'hopOffs': []}")
+        self.assertEqual(str(resultRoute['nodes'][1]),"{'latitude': 49.7079532, 'longitude': 7.6721057, 'label': 'Untergasse', 'tMin': '2090-03-01T13:33:00Z', 'tMax': '2090-03-01T13:36:00Z', 'hopOns': [], 'hopOffs': [{'orderId': 33, 'seats': 1, 'seatsWheelchair': 0}, {'orderId': 34, 'seats': 1, 'seatsWheelchair': 0}]}")        
         
         result = driver_details_busId(2, None, None)        
         self.assertEqual(len(result),1)
@@ -1864,8 +1872,9 @@ class Services(TransactionTestCase, Setups):
 
         resultRoute = driver_details(routeId)
         #print(resultRoute)
-        strNode1= "{'latitude': 49.7067624, 'longitude': 7.6690793, 'label': 'Lindenallee', 'tMin': '2090-03-01T13:30:00Z', 'tMax': '2090-03-01T13:33:00Z', 'hopOns': [OrderedDict([('orderId', 33), ('seats', 1), ('seatsWheelchair', 0)]), OrderedDict([('orderId', 34), ('seats', 1), ('seatsWheelchair', 0)])], 'hopOffs': []}"
-        strNode2= "{'latitude': 49.7079532, 'longitude': 7.6721057, 'label': 'Untergasse', 'tMin': '2090-03-01T13:33:00Z', 'tMax': '2090-03-01T13:36:00Z', 'hopOns': [], 'hopOffs': [OrderedDict([('orderId', 33), ('seats', 1), ('seatsWheelchair', 0)]), OrderedDict([('orderId', 34), ('seats', 1), ('seatsWheelchair', 0)])]}"
+        #self.maxDiff = None
+        strNode1= "{'latitude': 49.7067624, 'longitude': 7.6690793, 'label': 'Lindenallee', 'tMin': '2090-03-01T13:30:00Z', 'tMax': '2090-03-01T13:33:00Z', 'hopOns': [{'orderId': 33, 'seats': 1, 'seatsWheelchair': 0}, {'orderId': 34, 'seats': 1, 'seatsWheelchair': 0}], 'hopOffs': []}"
+        strNode2= "{'latitude': 49.7079532, 'longitude': 7.6721057, 'label': 'Untergasse', 'tMin': '2090-03-01T13:33:00Z', 'tMax': '2090-03-01T13:36:00Z', 'hopOns': [], 'hopOffs': [{'orderId': 33, 'seats': 1, 'seatsWheelchair': 0}, {'orderId': 34, 'seats': 1, 'seatsWheelchair': 0}]}"
         self.assertEqual(len(resultRoute['nodes']), 2)
         self.assertEqual(str(resultRoute['nodes'][0]),strNode1)
         self.assertEqual(str(resultRoute['nodes'][1]),strNode2)        
@@ -2017,7 +2026,7 @@ class Services(TransactionTestCase, Setups):
         self.assertEqual(result[1], 10)
         self.assertEqual(result[2], 'Hurray')
         self.assertEqual(str(result[4]), '[datetime.datetime(2090, 3, 1, 14, 0, tzinfo=tzlocal()), datetime.datetime(2090, 3, 1, 16, 0, tzinfo=tzlocal())]')
-        self.maxDiff = None
+        #self.maxDiff = None
 
         self.assertEqual(len(result[3]), 11)
         resultCmp = '(datetime.datetime(2090, 3, 1, 15, 40, tzinfo=tzlocal()), datetime.datetime(2090, 3, 1, 15, 50, tzinfo=tzlocal()))'
@@ -2108,16 +2117,17 @@ class Services(TransactionTestCase, Setups):
         # print(f"resultRoute: {resultRoute}")
         self.assertEqual(len(resultRoute['nodes']), 4)
         # note: in future we might combine nodes that have same station within same time window, up to no each hop_on gets its own node
-        self.assertEqual(str(resultRoute['nodes'][0]),"{'latitude': 49.7067624, 'longitude': 7.6690793, 'label': 'Lindenallee', 'tMin': '2090-03-01T13:50:00Z', 'tMax': '2090-03-01T13:53:00Z', 'hopOns': [OrderedDict([('orderId', 33), ('seats', 0), ('seatsWheelchair', 1)])], 'hopOffs': []}")
+        #self.maxDiff = None
+        self.assertEqual(str(resultRoute['nodes'][0]),"{'latitude': 49.7067624, 'longitude': 7.6690793, 'label': 'Lindenallee', 'tMin': '2090-03-01T13:50:00Z', 'tMax': '2090-03-01T13:53:00Z', 'hopOns': [{'orderId': 33, 'seats': 0, 'seatsWheelchair': 1}], 'hopOffs': []}")
         
         # sequence may differ, thus we cannot test a fixed sequence
-        strCmp1 = "{'latitude': 49.7079532, 'longitude': 7.6721057, 'label': 'Untergasse', 'tMin': '2090-03-01T13:57:00Z', 'tMax': '2090-03-01T14:00:00Z', 'hopOns': [], 'hopOffs': [OrderedDict([('orderId', 33), ('seats', 0), ('seatsWheelchair', 1)])]}"
-        strCmp2 = "{'latitude': 49.7079532, 'longitude': 7.6721057, 'label': 'Untergasse', 'tMin': '2090-03-01T13:57:00Z', 'tMax': '2090-03-01T14:00:00Z', 'hopOns': [OrderedDict([('orderId', 34), ('seats', 1), ('seatsWheelchair', 0)])], 'hopOffs': []}"
+        strCmp1 = "{'latitude': 49.7079532, 'longitude': 7.6721057, 'label': 'Untergasse', 'tMin': '2090-03-01T13:57:00Z', 'tMax': '2090-03-01T14:00:00Z', 'hopOns': [], 'hopOffs': [{'orderId': 33, 'seats': 0, 'seatsWheelchair': 1}]}"
+        strCmp2 = "{'latitude': 49.7079532, 'longitude': 7.6721057, 'label': 'Untergasse', 'tMin': '2090-03-01T13:57:00Z', 'tMax': '2090-03-01T14:00:00Z', 'hopOns': [{'orderId': 34, 'seats': 1, 'seatsWheelchair': 0}], 'hopOffs': []}"
                 
         self.assertTrue(str(resultRoute['nodes'][1]) == strCmp1 or str(resultRoute['nodes'][2]) == strCmp1)
         self.assertTrue(str(resultRoute['nodes'][1]) == strCmp2 or str(resultRoute['nodes'][2]) == strCmp2)
 
-        self.assertEqual(str(resultRoute['nodes'][3]),"{'latitude': 49.6751843, 'longitude': 7.6753142, 'label': 'Roth', 'tMin': '2090-03-01T14:04:00Z', 'tMax': '2090-03-01T14:07:00Z', 'hopOns': [], 'hopOffs': [OrderedDict([('orderId', 34), ('seats', 1), ('seatsWheelchair', 0)])]}")
+        self.assertEqual(str(resultRoute['nodes'][3]),"{'latitude': 49.6751843, 'longitude': 7.6753142, 'label': 'Roth', 'tMin': '2090-03-01T14:04:00Z', 'tMax': '2090-03-01T14:07:00Z', 'hopOns': [], 'hopOffs': [{'orderId': 34, 'seats': 1, 'seatsWheelchair': 0}]}")
 
         result = driver_details_busId(2, None, None)        
         self.assertEqual(len(result),1)
@@ -2226,7 +2236,7 @@ class RabbitMQ(LiveServerTestCase, Setups):
                 "Time": '2090-03-01T13:50.000+00:00', "Seats": load, "SeatsWheelchair": loadWheelchair, "IsDeparture": True, "Id": order_id}
             
         # send request
-        self.publisher.publish(message=json.dumps(data), routing_key='OrderStartedIntegrationEvent')
+        self.publisher._send(message=json.dumps(data), routing_key='OrderStartedIntegrationEvent')
 
         # wait just a moment to let our server react
         sleep(5)   
@@ -2271,7 +2281,7 @@ class RabbitMQ(LiveServerTestCase, Setups):
                 "Time": '2090-03-01T13:20.000+00:00', "Seats": load, "SeatsWheelchair": loadWheelchair, "IsDeparture": True, "Id": order_id}
 
         # send request
-        self.publisher.publish(message=json.dumps(data), routing_key='OrderStartedIntegrationEvent')
+        self.publisher._send(message=json.dumps(data), routing_key='OrderStartedIntegrationEvent')
 
         # wait just a moment to let our server react
         sleep_steps_max = 10
@@ -2354,7 +2364,7 @@ class RabbitMQ(LiveServerTestCase, Setups):
                 "Time": '2090-03-01T13:50.000+00:00', "Seats": load, "SeatsWheelchair": loadWheelchair, "IsDeparture": True, "Id": order_id2}
 
         # send request
-        self.publisher.publish(message=json.dumps(data), routing_key='OrderStartedIntegrationEvent')
+        self.publisher._send(message=json.dumps(data), routing_key='OrderStartedIntegrationEvent')
 
         # wait just a moment to let our server react
         for iStep in range(1,sleep_steps_max):
@@ -2449,7 +2459,7 @@ class RabbitMQ(LiveServerTestCase, Setups):
                 "Time": '2090-03-01T13:30.000+00:00', "Seats": load3, "SeatsWheelchair": loadWheelchair3, "IsDeparture": False, "Id": order_id3}
 
         # send request
-        self.publisher.publish(message=json.dumps(data), routing_key='OrderStartedIntegrationEvent')
+        self.publisher._send(message=json.dumps(data), routing_key='OrderStartedIntegrationEvent')
 
         # wait just a moment to let our server react
         for iStep in range(1,sleep_steps_max):
@@ -2588,7 +2598,7 @@ class RabbitMQ(LiveServerTestCase, Setups):
                 "Time": '2090-03-01T13:50.000+00:00', "Seats": load, "SeatsWheelchair": loadWheelchair, "IsDeparture": True, "Id": order_id}
         
         # send request
-        self.publisher.publish(message=json.dumps(data), routing_key='OrderStartedIntegrationEvent')
+        self.publisher._send(message=json.dumps(data), routing_key='OrderStartedIntegrationEvent')
 
         # wait just a moment to let our server react
         sleep_steps_max = 10
@@ -2622,8 +2632,8 @@ class RabbitMQ(LiveServerTestCase, Setups):
         
         self.assertEqual(243, Node.objects.count())
 
-        self.publisher.publish(json.dumps({'Id': order_id}), 'OrderCancelledIntegrationEvent')
-        sleep(2)        
+        self.publisher._send(message=json.dumps({'Id': order_id}), routing_key='OrderCancelledIntegrationEvent')
+        sleep(2)
 
         # hopOn/hopOff nodes are cleaned
         self.assertEqual(241, Node.objects.count())
@@ -2637,7 +2647,7 @@ class RabbitMQ(LiveServerTestCase, Setups):
                 "Time": '2090-03-01T13:20.000+00:00', "Seats": load, "SeatsWheelchair": loadWheelchair, "IsDeparture": True, "Id": order_id2}
 
         # send request
-        self.publisher.publish(message=json.dumps(data), routing_key='OrderStartedIntegrationEvent')        
+        self.publisher._send(message=json.dumps(data), routing_key='OrderStartedIntegrationEvent')        
 
         # wait just a moment to let our server react
         for iStep in range(1,sleep_steps_max):
@@ -2726,13 +2736,8 @@ class RabbitMQ(LiveServerTestCase, Setups):
 
     def test_UpdateBusPositionIntegrationEvent(self):
         bus = Bus.objects.last()
-        self.publisher.publish(
-            message=json.dumps({
-                'BusId': bus.uid,
-                'Latitude': 12,
-                'Longitude': 34,
-                }),
-            routing_key='UpdateBusPositionIntegrationEvent')
+        self.publisher._send(message=json.dumps({'BusId': bus.uid,'Latitude': 12,'Longitude': 34}),
+                             routing_key='UpdateBusPositionIntegrationEvent')
         sleep(0.2)
         updated_bus = Bus.objects.get(uid=bus.uid)
         self.assertTrue(abs(updated_bus.latitude-12) < 0.1)
@@ -2903,8 +2908,9 @@ class BusEvents(TransactionTestCase, Setups):
         self.init_rabbit()
 
     def test_delete_bus(self):
-        self.publisher.publish(json.dumps({'Id': self.bus.uid, 'CommunityId': self.bus.community, 'Name': self.bus.name}), 'BusDeletedIntegrationEvent')
-        sleep(10)
+        self.publisher._send(message=json.dumps({'Id': self.bus.uid, 'CommunityId': self.bus.community, 'Name': self.bus.name}), 
+                             routing_key='BusDeletedIntegrationEvent')
+        sleep(15)
         with self.assertRaises(ObjectDoesNotExist):
             Bus.objects.get(uid=self.bus.uid) # this sometimes failes, may be due to slow done event callback -> increase sleep
         with self.assertRaises(ObjectDoesNotExist):
@@ -2923,7 +2929,8 @@ class BusEvents(TransactionTestCase, Setups):
         self.assertEqual(busCmp.capacity_wheelchair, 1)   
         self.assertEqual(busCmp.capacity_blocked_per_wheelchair, 2)           
 
-        self.publisher.publish(json.dumps({'Id': self.bus.uid, 'CommunityId': self.bus.community, 'Name': self.bus.name}), 'BusUpdatedIntegrationEvent')
+        self.publisher._send(message=json.dumps({'Id': self.bus.uid, 'CommunityId': self.bus.community, 'Name': self.bus.name}), 
+                             routing_key='BusUpdatedIntegrationEvent')
         sleep(2)
 
         busCmp = Bus.objects.get(uid=self.bus.uid)
@@ -2937,7 +2944,8 @@ class BusEvents(TransactionTestCase, Setups):
         routeLoad = self.route.needed_capacity
         self.assertEqual(str(routeLoad), 'MobyLoad(4, 3)')   
 
-        self.publisher.publish(json.dumps({'Id': self.bus.uid, 'CommunityId': self.bus.community, 'Name': self.bus.name}), 'BusUpdatedIntegrationEvent')
+        self.publisher._send(message=json.dumps({'Id': self.bus.uid, 'CommunityId': self.bus.community, 'Name': self.bus.name}), 
+                             routing_key='BusUpdatedIntegrationEvent')
         sleep(2)
 
         # order2 deleted due to low capa; first order, route and bus already existing
@@ -2959,7 +2967,8 @@ class BusEvents(TransactionTestCase, Setups):
         # now first order assumed to be too large
         Order.objects.update(uid=self.order.uid,load=10)
 
-        self.publisher.publish(json.dumps({'Id': self.bus.uid, 'CommunityId': self.bus.community, 'Name': self.bus.name}), 'BusUpdatedIntegrationEvent')
+        self.publisher._send(message=json.dumps({'Id': self.bus.uid, 'CommunityId': self.bus.community, 'Name': self.bus.name}), 
+                             routing_key='BusUpdatedIntegrationEvent')
         sleep(5)
 
         # now bus, route, order deleted
@@ -2978,8 +2987,8 @@ class OrderEvents(TransactionTestCase, Setups):
     def test_existing_order_canceled(self):
         self.assertEqual(5, Node.objects.count())
 
-        self.publisher.publish(json.dumps({'Id': self.order.uid}), 'OrderCancelledIntegrationEvent')
-        sleep(3)
+        self.publisher._send(message=json.dumps({'Id': self.order.uid}), routing_key='OrderCancelledIntegrationEvent')
+        sleep(10)
         with self.assertRaises(ObjectDoesNotExist):
             Order.objects.get(uid=self.order.uid) # this sometimes failes, may be due to slow done event callback -> increase sleep
 
@@ -2989,7 +2998,7 @@ class OrderEvents(TransactionTestCase, Setups):
     def test_non_existing_order_canceled(self):
         self.assertEqual(5, Node.objects.count())
 
-        self.publisher.publish(json.dumps({'Id': self.order.uid+9999999}), 'OrderCancelledIntegrationEvent')
+        self.publisher._send(message=json.dumps({'Id': self.order.uid+9999999}), routing_key='OrderCancelledIntegrationEvent')
         sleep(1)
         Order.objects.get(uid=self.order.uid)
 

@@ -1,7 +1,8 @@
 import logging
 from datetime import datetime, timedelta
 
-from celery import shared_task, task
+#from Routing_Api.celery import app
+from celery import shared_task
 from dateutil.relativedelta import relativedelta
 from dateutil.tz import tzutc
 from django.db.models import Q
@@ -10,15 +11,15 @@ from django.db import transaction
 from routing.routingClasses import MobyLoad
 
 from .models import Node, Route, Order, Station
-from .signals import RabbitMqSender
+from .signals import RabbitMqSender as Publisher
 from .serializers import RouteSerializer
 import json
 
 LOGGER = logging.getLogger('Mobis.tasks')
 UTC = tzutc()
-sender = RabbitMqSender(threaded=False)
+sender = Publisher(threaded=False)
 
-@task
+@shared_task
 def split_routes(delta_time_min_for_split=30):
     '''Split booked routes where the bus could be exchanged.'''
     LOGGER.info(f'split_routes...')
@@ -62,7 +63,7 @@ def split_routes(delta_time_min_for_split=30):
                                 sender.RouteChangedIntegrationEvent(
                                     orderId=order.uid, oldRouteId=route_id, newRouteId=node.route.pk,
                                     startTimeMinimum=hopOnNode.tMin, startTimeMaximum=hopOnNode.tMax,
-                                    destinationTimeMinimum=node.tMin, destinationTimeMaximum=node.tMax)
+                                    destinationTimeMinimum=node.tMin, destinationTimeMaximum=node.tMax, busId=route.busId)
                             except Exception as err:
                                 LOGGER.error('split_routes: failed to send RouteChangedEvent for oldRouteId {route_id} with: %s', err, exc_info=True)
                                 raise err
@@ -102,7 +103,7 @@ def split_routes(delta_time_min_for_split=30):
 
     LOGGER.info(f'split_routes finished')
 
-@task
+@shared_task
 def freeze_routes(social_time_min=15):
 
     if social_time_min < 0:
@@ -136,15 +137,14 @@ def freeze_routes(social_time_min=15):
 
                 # publish event
                 try:
-                    sender.RouteFrozenIntegrationEvent(
-                        routeId=route.id, startTimeMinimum=time_start)
+                    sender.RouteFrozenIntegrationEvent(routeId=route.id, startTimeMinimum=time_start)
                 except Exception as err:
                     LOGGER.error('freeze_routes: failed to send RouteFrozenIntegrationEvent for route_id {route.id} with: %s', err, exc_info=True)
                     raise err 
 
     LOGGER.info(f'freeze_routes finished')
 
-@task
+@shared_task
 def delete_empty_routes():
     # this could be used if we didn't intermediate nodes - tbd
     # empty_routes = Route.objects.empty()
@@ -165,7 +165,7 @@ def delete_empty_routes():
                 LOGGER.info(f'delete empty route: {route}')
                 route.delete()    
 
-@task
+@shared_task
 def delete_unused_nodes():
     """ check for empty nodes that aren't stations and delete them """
     LOGGER.info(f'delete_unused_nodes...')
@@ -187,7 +187,7 @@ def delete_unused_nodes():
 
     LOGGER.info(f'delete_unused_nodes finished')
 
-@task
+@shared_task
 def delete_routes():
     LOGGER.info(f'delete_routes...')
 
@@ -231,7 +231,7 @@ def dump(route):
         logfile.write(jsontxt)
         logfile.write("\n")
 
-@task
+@shared_task
 def check_routing_data() -> bool:
     LOGGER.info(f'check_routing_data...')
 

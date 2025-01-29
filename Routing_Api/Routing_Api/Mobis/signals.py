@@ -1,4 +1,4 @@
-from Routing_Api.Mobis.EventBus import Consumer, Publisher, UnthreadedPublisher
+from Routing_Api.Mobis.EventBus import AsyncPublisher, Consumer, UnthreadedPublisher
 import json
 from datetime import datetime
 
@@ -20,11 +20,11 @@ class RabbitMqSender():
 
     Attributes:
         exchange (str): Currently unused as the default exchange is defined in the EventBus.py file
-        threaded (bool): Determines whether to use a threaded `Publisher` or an `UnthreadedPublisher`. Defaults to `True`.
+        threaded (bool): Determines whether to use a threaded `AsyncPublisher` or an `UnthreadedPublisher`. Defaults to `True`.
     """
     def __init__(self, exchange=None, threaded=True):
         if threaded:
-            self._event_bus = Publisher()
+            self._event_bus = AsyncPublisher()
             self._event_bus.start()
         else:
             self._event_bus = UnthreadedPublisher()
@@ -32,14 +32,15 @@ class RabbitMqSender():
         self._event_bus.publish(message=json.dumps(message), routing_key=routing_key)
     
 
-    # ------------------ Integration events ------------------
+    # ------------------ Outgoing integration events ------------------
     def RouteConfirmedIntegrationEvent(self,
             orderId:int, routeId:int,
             startTimeMinimum:datetime, startTimeMaximum:datetime,
-            destinationTimeMinimum:datetime, destinationTimeMaximum:datetime):
+            destinationTimeMinimum:datetime, destinationTimeMaximum:datetime, busId:int):
         message = {
             'orderId': orderId,
             'routeId': routeId,
+            'busId': busId,
             'startTimeMinimum': startTimeMinimum.isoformat(),
             'startTimeMaximum': startTimeMaximum.isoformat(),
             'destinationTimeMinimum': destinationTimeMinimum.isoformat(),
@@ -57,11 +58,12 @@ class RabbitMqSender():
         self._send(message=message, routing_key='RouteFrozenIntegrationEvent')
     def RouteChangedIntegrationEvent(self, orderId:int, oldRouteId:int, newRouteId:int,
             startTimeMinimum:datetime, startTimeMaximum:datetime,
-            destinationTimeMinimum:datetime, destinationTimeMaximum:datetime):
+            destinationTimeMinimum:datetime, destinationTimeMaximum:datetime, busId : int):
         message = {
             'orderId': orderId,
             'oldRouteId': oldRouteId,
             'newRouteId': newRouteId,
+            'busId': busId,
             'startTimeMinimum': startTimeMinimum.isoformat(),
             'startTimeMaximum': startTimeMaximum.isoformat(),
             'destinationTimeMinimum': destinationTimeMinimum.isoformat(),

@@ -13,7 +13,7 @@ class TestMaps(TestCase):
         self.assertIsNotNone(self.G)
 
     def test_maps_constructor(self):
-        self.assertEqual("['1', '1000001', '2', '3', '4', '5', 'Peine_2km', 'StWendel', 'Zwoenitz', 'meisenheim', 'previous-1']", str(self.maps.communities))
+        self.assertEqual("['1', '1000001', '2', '3', '4', '5', 'Peine_2km', 'StWendel', 'Zwoenitz', 'meisenheim']", str(self.maps.communities))
         self.assertEqual(80434, len(self.maps.NODES_IN_COMMUNITY['4']))
         self.assertEqual(80434, len(self.maps.NODES_IN_COMMUNITY['meisenheim']))
         self.assertEqual(53112, len(self.maps.NODES_IN_COMMUNITY['1']))

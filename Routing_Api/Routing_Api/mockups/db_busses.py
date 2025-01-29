@@ -11,6 +11,7 @@ from typing import List
 LOGGER = logging.getLogger(__name__)
 UTC = tzutc()
 
+
 class Availability():
     def __init__(self, bus_id, timeslots, timeslots_blocker):
         self.bus_id = bus_id
@@ -18,12 +19,13 @@ class Availability():
         self.timeslots_blocker = timeslots_blocker
 
     def __str__(self):
-        return f'<Availability(bus_id={self.bus_id},timeslots={self.timeslots},timeslots_blocker={self.timeslots_blocker})>'    
+        return f'<Availability(bus_id={self.bus_id},timeslots={self.timeslots},timeslots_blocker={self.timeslots_blocker})>'
+
 
 class Busses():
     """ Bus service that is connected to a django db-model """
 
-    def __init__(self, busUrl, busAvailUrl, BusDb, RouteDb, *args, **kwargs):        
+    def __init__(self, busUrl, busAvailUrl, BusDb, RouteDb, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._busUrl = busUrl
         self._busAvailUrl = busAvailUrl
@@ -31,10 +33,10 @@ class Busses():
         self._routes = RouteDb
         self._look_around = kwargs.get('look_around', 1)
         self.__fetch_initial_data()
-    
+
     def __fetch_initial_data(self):
         pass
-    
+
     def update(self, bus_id, **kwargs):
         bus = self._busses.objects.get(uid=bus_id)
         for attribute, value in kwargs.items():
@@ -43,7 +45,7 @@ class Busses():
 
     def _get_buses_in_community(self, community, start_time=None, stop_time=None):
         return self._busses.objects.filter(community=community)
-        
+
     def _get_availabilities_in_community(self, community, start_time, stop_time):
         # print(f"DEBUGGING start_time (Eingabeparameter) in _get_availabilities_in_community: {start_time}")
         # print(f"DEBUGGING stop_time (Eingabeparameter) in _get_availabilities_in_community: {stop_time}")
@@ -72,29 +74,33 @@ class Busses():
                     bus = self._busses.objects.get(uid=busID_requested)
                 except Exception:
                     bus = self._busses(uid=busID_requested)
-                bus.name=availability_information['name']
-                bus.community=availability_information['communityId']
-                bus.capacity=availability_information['seats']
+                bus.name = availability_information['name']
+                bus.community = availability_information['communityId']
+                bus.capacity = availability_information['seats']
                 bus.capacity_wheelchair = availability_information['seatsWheelchair']
-                bus.capacity_blocked_per_wheelchair = availability_information['seatsBlockedPerWheelchair'] 
+                bus.capacity_blocked_per_wheelchair = availability_information['seatsBlockedPerWheelchair']
+                bus.vehicleType = availability_information['vehicleType'] if 'vehicleType' in availability_information else 'bus'
 
                 bus.save()
 
-                timeslots = [((parse(slot['startDate']), 'Depot'),(parse(slot['endDate']), 'Depot')) for slot in availability_information['availabilitySlots']]
-                timeslots_blocker = [((parse(slot['startDate']), 'Depot'),(parse(slot['endDate']), 'Depot')) for slot in availability_information['blockingSlots']] # blocker slots
-                availability = Availability(bus_id=busID_requested, timeslots=timeslots, timeslots_blocker=timeslots_blocker)
+                timeslots = [((parse(slot['startDate']), 'Depot'), (parse(slot['endDate']), 'Depot')) for slot in
+                             availability_information['availabilitySlots']]
+                timeslots_blocker = [((parse(slot['startDate']), 'Depot'), (parse(slot['endDate']), 'Depot')) for slot
+                                     in availability_information['blockingSlots']]  # blocker slots
+                availability = Availability(bus_id=busID_requested, timeslots=timeslots,
+                                            timeslots_blocker=timeslots_blocker)
                 # print(f"availability in _get_availabilities_in_community: {availability.bus_id}")
                 availabilities.append(availability)
-                #print(f"availabilities in _get_availabilities_in_community: {availabilities}")
-                
+                # print(f"availabilities in _get_availabilities_in_community: {availabilities}")
+
         except Exception as err:
             raise ValueError(f'Could not read json data properly:{available_buses}, error message: {err}')
-            
-        return availabilities    
-    
+
+        return availabilities
+
     def _get_bus(self, bus_id):
         return self._busses.objects.get(uid=bus_id)
-    
+
     def refresh_bus(self, bus_id):
         """
         Retrieves information about a bus from the Directus API, parses the JSON response, and updates a Bus object
@@ -104,9 +110,11 @@ class Busses():
         url = self._busUrl + '/' + str(bus_id)
         response = requests.get(url, verify=False)
         if response.status_code != 200:
-            raise ValueError(f'Could not get information for bus id {bus_id}, got ' + 
-                '{response.status_code}: {response.text}')
+            raise ValueError(f'Could not get information for bus id {bus_id}, got ' +
+                             '{response.status_code}: {response.text}')
         bus_information = json.loads(response.text)
+
+        # bus info attribute names to lower
         bus_information = {k.lower(): v for k, v in bus_information.items()}
 
         print(bus_information)
@@ -116,15 +124,17 @@ class Busses():
         except:
             bus = self._busses(uid=bus_id, name=bus_information['name'])
 
+        # call the attributes from response, names must be LOWER!
         bus.name = bus_information['name']
         bus.community = bus_information['community_id']
         bus.capacity = bus_information['seats']
         bus.capacity_wheelchair = bus_information['seats_wheelchair']
-        bus.capacity_blocked_per_wheelchair = bus_information['seatsblockedbywheelchair'] 
+        bus.capacity_blocked_per_wheelchair = bus_information['seatsblockedbywheelchair']
+        bus.vehicleType = bus_information['vehicletype']
 
         bus.save()
         return bus
-    
+
     def _get_frozen_routes_for_busses(self, bus_ids, start_time, stop_time):
 
         # print("results _get_frozen_routes_for_busses")
@@ -133,28 +143,27 @@ class Busses():
 
         result = self._routes.objects.prefetch_related('nodes', 'bus').filter(
             bus__uid__in=bus_ids,
-            status__in=[self._routes.FROZEN, self._routes.STARTED, self._routes.FINISHED], 
+            status__in=[self._routes.FROZEN, self._routes.STARTED, self._routes.FINISHED],
             nodes__tMin__lte=stop_time,
             nodes__tMax__gte=start_time).all()
 
         # print(result)        
-        
-        return result        
-    
+
+        return result
+
     @staticmethod
     def __routes_to_constraints(routes, buffertime_minutes):
         # create a list for each bus with first and last (location, time) information
         constraints = {route.busId: [] for route in routes}
-        for route in routes:     
-                
+        for route in routes:
             busId = route.busId
             start_node = route.nodes.first()
             stop_node = route.nodes.last()
             # print("__routes_to_constraints start_node stop_node")   
             # print(start_node)   
             # print(stop_node)   
-            constraints[busId].append(((start_node.tMin-timedelta(minutes=buffertime_minutes), start_node.mapId),
-                                (stop_node.tMax+timedelta(minutes=buffertime_minutes), stop_node.mapId)))
+            constraints[busId].append(((start_node.tMin - timedelta(minutes=buffertime_minutes), start_node.mapId),
+                                       (stop_node.tMax + timedelta(minutes=buffertime_minutes), stop_node.mapId)))
         return constraints
 
     @staticmethod
@@ -209,8 +218,9 @@ class Busses():
 
             # if all cases are covered, this should not happen
             else:
-                LOGGER.error(f"couldn't find matching case for slot {slots[-1]} and constraint: {constraint}", exc_info=True)
-        
+                LOGGER.error(f"couldn't find matching case for slot {slots[-1]} and constraint: {constraint}",
+                             exc_info=True)
+
         def nonempty_slot(slot):
             """ Compare start and end time of slot and return only true if there's space in-between. """
             ((start, _), (end, __)) = slot
@@ -219,7 +229,7 @@ class Busses():
         # return only slots that have time left to manoeuver
         return list(filter(nonempty_slot, slots))
 
-    def get_available_buses(self, community, start_times: List[datetime]=None, stop_times: List[datetime]=None):
+    def get_available_buses(self, community, start_times: List[datetime] = None, stop_times: List[datetime] = None):
         # print("get_available_buses")
         # print(f"DEBUGGING start_times in get_available_buses: {start_times}")
         # print(f"DEBUGGING stop_times in get_available_buses: {stop_times}")
@@ -239,17 +249,16 @@ class Busses():
 
         for time in times_all:
             if time < time_min:
-                time_min=time
+                time_min = time
             if time > time_max:
                 time_max = time
-        
+
         time_domain = relativedelta(hours=self._look_around)
         lower_time_range = time_min - time_domain
         upper_time_range = time_max + time_domain
         # print(f"DEBUGGING time_domain in get_available_buses: {time_domain}")
         # print(f"DEBUGGING lower_time_range in get_available_buses: {lower_time_range}")
         # print(f"DEBUGGING upper_time_range in get_available_buses: {upper_time_range}")
-        
 
         availabilities = list(self._get_availabilities_in_community(
             community=community,
@@ -257,26 +266,25 @@ class Busses():
             stop_time=upper_time_range))
         # print(f"DEBUGGING availabilities in get_available_buses: {availabilities}")
 
-
         # remove reserved times of frozen routes from time slot
         routes = list(self._get_frozen_routes_for_busses(
             bus_ids=[availability.bus_id for availability in availabilities],
             start_time=lower_time_range,
             stop_time=upper_time_range))
-        
+
         # create a list for each bus with first and last (location, time) information
         # buffer is used that there is little time remaining between frozen routes an new ones
         constraints = self.__routes_to_constraints(routes, buffertime_minutes=15)
-        
+
         result = []
         time_in_blocker = []
 
         for time in times_all:
-        
+
             resources_of_time = []
-            current_time_in_blocker = False  
+            current_time_in_blocker = False
             time_slots_empty = True
-            
+
             for availability in availabilities:
                 bus_id = availability.bus_id
                 bus = self._get_bus(bus_id=bus_id)
@@ -302,25 +310,26 @@ class Busses():
                     if time >= start and time <= end:
                         timeslots.extend(self.__reduce_timeslot(timeslot, constraints.get(bus_id, [])))
                     else:
-                        print("time not in timeslot")                    
-                        pass 
-                            
-                time_slots_empty = (time_slots_empty and (len(timeslots) == 0))           
+                        print("time not in timeslot")
+                        pass
+
+                time_slots_empty = (time_slots_empty and (len(timeslots) == 0))
                 # print(time_slots_empty)
                 # print(len(timeslots))
 
-                for timeslot in timeslots: 
+                for timeslot in timeslots:
                     # print("remaining timeslots")
                     # print(timeslot)
                     ((start, start_location), (end, end_location)) = timeslot
 
-                    
                     vehicle = Vehicle(
                         start_location=start_location,
                         stop_location=end_location,
                         work_time=(start, end),
-                        capacity=VehicleCapacity(bus.capacity, bus.capacity_wheelchair, bus.capacity_blocked_per_wheelchair))
-                    
+                        vehicleType = bus.vehicleType,
+                        capacity=VehicleCapacity(bus.capacity, bus.capacity_wheelchair,
+                                                 bus.capacity_blocked_per_wheelchair))
+
                     # print(f"DEBUGGING vehicle in db_busses.py: {vehicle})")
 
                     # make sure we use the correct ids for later use in our assignments
@@ -328,60 +337,22 @@ class Busses():
                     # and add this instance to our list of useable buses
 
                     resources_of_time.append(vehicle)
-                
+
                 # check if time is in blocker
-                for timeslotBlocker in availability.timeslots_blocker: 
+                for timeslotBlocker in availability.timeslots_blocker:
                     # print("blocker timeslots")
                     # print(timeslotBlocker)
                     # print(time)
-                    ((start, start_location), (end, end_location)) = timeslotBlocker   
+                    ((start, start_location), (end, end_location)) = timeslotBlocker
 
                     if time >= start and time <= end:
-                        current_time_in_blocker = True 
+                        current_time_in_blocker = True
 
             result.append(resources_of_time)
-            time_in_blocker.append(time_slots_empty and current_time_in_blocker) # time in blocker only if no slots were found
+            time_in_blocker.append(
+                time_slots_empty and current_time_in_blocker)  # time in blocker only if no slots were found
         # print(f"DEBUGGING result in db_busses.py: {result}")
         return (result, time_in_blocker)
 
-class RoadClosures:
-    def __init__(self, apiurl):
-        self._api_uri = apiurl
-        self.closures_lat = []
-        self.closures_lon = []
 
-    def getRoadClosuresList(self):
-        result: List = []
 
-        row = 0
-
-        for lat in self.closures_lat:
-            result.append((lat, self.closures_lon[row]))
-            row += 1
-
-        return result
-
-    def initRoadClosures(self, communityId, start_time, stop_time):
-        self.closures_lat = []
-        self.closures_lon = []
-
-        start_time_str = datetime2isostring(start_time)
-        stop_time_str = datetime2isostring(stop_time)
-
-        url = self._api_uri + '/customendpoints/roadclosures/' + str(communityId) + '/' + start_time_str + '/' + stop_time_str
-
-        # print(url)
-        LOGGER.info('requesting road closures at %s', url)
-
-        try:
-            response = requests.get(url, verify=False)
-            if response.status_code != 200:
-                raise ValueError(f'Could not get resources from {url}, got {response.status_code}:{response.text}')
-        except Exception as err:
-            raise ValueError(f'Error while calling url: {url}, error message: {err}')
-
-        closures_raw = json.loads(response.text)
-
-        for closure in closures_raw:
-            self.closures_lat.append(closure['latitude'])
-            self.closures_lon.append(closure['longitude'])
