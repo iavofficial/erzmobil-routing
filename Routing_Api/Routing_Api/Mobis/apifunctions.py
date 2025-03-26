@@ -51,15 +51,18 @@ if os.environ.get('IS_CELERY_APP', 'no') != "yes":
 
     if osrmEnv in os.environ and os.environ.get(osrmEnv) != 'NONE':
         osrmUrl = os.environ.get(osrmEnv,'http://router.project-osrm.org')    
-        OSRM_activated = True    
+        OSRM_activated = True
+        LOGGER.info(f'OSRM_ACTIVATED, osrmUrl={osrmUrl}')
         print('OSRM_ACTIVATED')
     else:
         # load maps from files
         if os.path.isdir('../maps'):
             # print('apifunctions - load maps')
             # print(maps)
-            maps = Maps(data_dir='../maps')        
+            maps = Maps(data_dir='../maps')
+            LOGGER.info(f'maps={maps}')       
         else:
+            LOGGER.info(f'could not locate a data directory with map data')       
             raise FileNotFoundError('could not locate a data directory with map data')
     
     Requests = RequestManager(
@@ -108,6 +111,7 @@ def RouteCheck(startLocation, stopLocation, time, isDeparture, seatNumber=1, whe
             stop_window=t_stop, load=seatNumber, loadWheelchair=wheelchairNumber, group_id=routeId, alternatives_mode=alternatives_mode_checked)
 
     except Exception as err:
+        LOGGER.error(f'RouteCheck failed: {err}')
         raise APIException()
 
     found_times = []
@@ -150,17 +154,20 @@ def RouteRequest(startLocation, stopLocation, time, isDeparture, seatNumber=1, w
         orderId = int(orderId)
     if routeId:
         routeId = int(routeId)
-
+        
     try:
         solution = Requests.order(start_location=startLocation, stop_location=stopLocation, start_window=t_start,
                                 stop_window=t_stop, load=seatNumber, loadwheelchair= wheelchairNumber, group_id=routeId, order_id=orderId)
     except DuplicatedOrder as err:
-        LOGGER.error(f'Order_id={orderId} already exists: {err}', exc_info=True)
+        message = f'DuplicatedOrder, Order_id={orderId} already exists: {err}'
+        Requests.Orders.route_rejected(order_id=orderId, reason=message, start=startLocation, destination=stopLocation, datetime=time, seats=seatNumber, seats_wheelchair=wheelchairNumber)
+        LOGGER.error(message, exc_info=True)
         solution = False
     except Exception as err:
-        self.Orders.route_rejected(order_id=orderId, reason=f'an error occurred: {err}')
-        LOGGER.error(f'Unexpected error: {err}', exc_info=True)
-
+        message = f'an error occurred in RouteRequest: {err}'
+        Requests.Orders.route_rejected(order_id=orderId, reason=message, start=startLocation, destination=stopLocation, datetime=time, seats=seatNumber, seats_wheelchair=wheelchairNumber)
+        LOGGER.error(message, exc_info=True)
+        
     return Response(data=solution)
 
 def RouteDetails(routeId):

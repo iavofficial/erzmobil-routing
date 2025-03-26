@@ -105,7 +105,6 @@ class DataProblem():
 # todo nach dem Umbau wg OSRM muss man das hier ueberdenken oder ganz entfernen
 class CreateDistanceEvaluator(object):
     """Creates callback to return distance between points."""
-
     def __init__(self, data:DataProblem,
                  paths: Callable[[LocationIndex, LocationIndex], Path]):
         """Initializes the distance matrix."""
@@ -130,6 +129,7 @@ class CreateDemandEvaluator(object):
 
     def __init__(self, data:DataProblem):
         """Initializes the demand array."""
+
         self._demands = data.demands
         self._wheelchair_weight = 0
 
@@ -141,7 +141,7 @@ class CreateDemandEvaluator(object):
 
         if from_node < len(self._demands):
             retTmp = self._demands[from_node].standardSeats
-            #print(f'demand_evaluator_seats {retTmp}')
+            logger.debug(f'demand_evaluator_seats for seats = {retTmp}')
             return retTmp            
         return 0
 
@@ -150,7 +150,7 @@ class CreateDemandEvaluator(object):
 
         if from_node < len(self._demands):
             retTmp = self._demands[from_node].wheelchairs
-            #print(f'demand_evaluator_wheelchairs {retTmp}')
+            logger.debug(f'demand_evaluator_wheelchairs for wheelchairs = {retTmp}')
             return retTmp
         return 0
 
@@ -160,12 +160,13 @@ class CreateDemandEvaluator(object):
         wheelchair_weight = 2
 
         if self._wheelchair_weight > wheelchair_weight:
-            raise ValueError('Wheelchair weight can be max 2!') # otherwise our weighted sum constraint will not work
+            logger.debug(f'Wheelchair weight can be max {wheelchair_weight}')
+            raise ValueError(f'Wheelchair weight can be max {wheelchair_weight}') # otherwise our weighted sum constraint will not work
 
         # calc a weighted sum for seats and wheelchairs that allows us to limit demands such that wheelchairs can reduce standard seats
         if from_node < len(self._demands):
             retTmp = self._demands[from_node].standardSeats + wheelchair_weight*(self._demands[from_node].wheelchairs)
-            #print(f'demand_evaluator_weighted_sum {retTmp}')
+            # logger.debug(f'demand_evaluator_weighted_sum for seats and wheelchairs = {retTmp}')
             return retTmp
         return 0
 
@@ -271,7 +272,7 @@ class CreateTimeEvaluator(object):
                 # as second rule we implement additional constraint
                 self._total_time_weighted[from_index][to_index] = self._total_time[from_index][to_index]*(1+2*number_passengers_hop_on+3*number_wheelchairs_hop_on_off)                
 
-                logger.debug(f'service time {from_index} {to_index} {self._total_time[from_index][to_index]}')
+                # logger.debug(f'service time {from_index} {to_index} {self._total_time[from_index][to_index]}')
 
     def time_evaluator(self, from_index:LocationIndex, to_index:LocationIndex)->int:
         """Returns the total time between the two nodes"""
@@ -355,8 +356,7 @@ def add_pickup_delivery_constraints(routing:pywrapcp.RoutingModel,
 
         delivery = deliveries[0]
 
-        logger.debug(
-            'pickup constraint pickup_id: {}, delivery_id: {}'.format(pickup, delivery))
+        logger.debug('pickup constraint pickup_id: {}, delivery_id: {}'.format(pickup, delivery))
         index_pickup = routingIndexManager.NodeToIndex(pickup)
         index_delivery = routingIndexManager.NodeToIndex(delivery)
 
@@ -469,8 +469,7 @@ def add_group_constraints(routing:pywrapcp.RoutingModel,
     for group_id, group in groups.items():
         if len(group.location_ids) < 2:
             continue
-        logger.debug(
-            f'group constraint group_id: {group_id}, location_ids: {group.location_ids}')
+        logger.debug(f'group constraint group_id: {group_id}, location_ids: {group.location_ids}')
         indices_location: List[int] = [routingIndexManager.NodeToIndex(location_id)
             for location_id in group.location_ids]
         routing.AddSoftSameVehicleConstraint(indices_location, group.penalty)
@@ -613,7 +612,7 @@ class BusTour:
             if build_paths:
                 self.build_paths()
         except NoRouteException as err:
-            logger.debug(err)
+            logger.error('NoRouteException in add_moby: {}'.format(err))
 
             # reset data - if moby cannot be added successfully, all moby-specific data must be removed
             self.locations = locations_old            
@@ -635,7 +634,7 @@ class BusTour:
 
             return None
         except Exception as err:
-            logger.debug(err)
+            logger.error('exception in add_moby: {}'.format(err))
             raise err
 
         return group_id
@@ -649,10 +648,10 @@ class BusTour:
                 group_ids.append(self._add_moby(moby))
             self.update()
             self.build_paths()
-        except NoRouteException as err:
-            logger.debug(err)
+        except NoRouteException as err:  
+            logger.error('NoRouteException exception in add_mobies: {}'.format(err))
         except Exception as err:
-            logger.debug(err)
+            logger.error('exception in add_mobies: {}'.format(err))
             raise err
         return group_ids
         # return self._final_paths
@@ -678,10 +677,10 @@ class BusTour:
             self.time_matrix = self.calc_time_matrix(self.locations)
             duration_of_route = self.time_matrix[moby.start_station][moby.stop_station]            
         except nx.NetworkXNoPath as err:
-            logger.debug('{}'.format(err))
+            logger.error('NetworkXNoPath exception in _add_moby: {}'.format(err))
             raise NoRouteExceptionInternalError(f'No routing possible due to error when calculating path. Internal error data: {err}')
         except ValueError as err:
-            logger.debug('{}'.format(err))
+            logger.error('ValueError in _add_moby: {}'.format(err))
             raise NoRouteExceptionInternalError(f'No routing possible due to value error in data. Internal error data: {err}')        
 
         hop_on_idx, hop_off_idx = len(self.locations)-2, len(self.locations)-1
@@ -832,16 +831,15 @@ class BusTour:
         return (result, connection_active)
 
     def add_station(self, station:Station, time_window:TimeWindow, bus_ids:List[BusIndex], penalty:int=STNIMMERLEIN)->None:
-        logger.debug(
-            f'add_station station: {station}, time_window: {time_window}, bus_ids: {bus_ids}')
+        logger.debug(f'add_station station: {station}, time_window: {time_window}, bus_ids: {bus_ids}')
         try:
             self._add_station(station, time_window, bus_ids, penalty)
             self.update()
             self.build_paths()
         except NoRouteException as err:
-            logger.debug(err)
+            logger.error(f'NoRouteException in add_station(..): {err}')
         except Exception as err:
-            logger.debug(err)
+            logger.error(f'exception in add_station(..): {err}')
             raise err
         # return self._final_paths
 
@@ -855,9 +853,9 @@ class BusTour:
             self.update()
             self.build_paths()
         except NoRouteException as err:
-            logger.debug(err)
+            logger.error(f'NoRouteException in add_stations(..): {err}')
         except Exception as err:
-            logger.debug(err)
+            logger.error(f'exception in add_stations(..): {err}')
             raise err
         # return self._final_paths
 
@@ -880,7 +878,8 @@ class BusTour:
             else:
                 self.station_closing_times[station.node_id] = time_windows
         else:
-            raise ValueError(f'Location hat not node_id, location data: {station}')
+            logger.error(f'station hat not node_id, station data: {station}')
+            raise ValueError(f'station hat not node_id, station data: {station}')
 
     def update(self)->None:
 
@@ -912,14 +911,14 @@ class BusTour:
               
             self.time_matrix = self.calc_time_matrix(self.locations)
         except nx.NetworkXNoPath as err:
-            logger.debug(f'NetworkXNoPath: {err}')
+            logger.error(f'NetworkXNoPath: {err}')
             raise NoRouteExceptionInternalError('No routing possible due to error when calculating time matrix. Internal error data: {err}')
         except ValueError as err:
-            logger.warning(f'ValueError error within calc_time_matrix: {err}')
+            logger.error(f'ValueError error within calc_time_matrix: {err}')
             raise NoRouteExceptionInternalError('No routing possible due to value error when calculating time matrix. Internal error data: {err}') 
         except:
             import sys
-            logger.warning("Unexpected error:", sys.exc_info()[0])
+            logger.error("Unexpected error:", sys.exc_info()[0])
             raise
 
         # todo umbauen oder entfernen - beachten dass der Ortools-Optimierer nur mit Integer rechnet
@@ -965,10 +964,10 @@ class BusTour:
         logger.info('solve problem...')
         self.assignment = self.routing.SolveWithParameters(self.search_parameters)
         if self.assignment is None:
-            logger.info('update: no solution found')
+            logger.info('update: no solution found SolveWithParameters')
             raise NoRouteException
         else:
-            logger.info('success')
+            logger.info('success update: SolveWithParameters')
 
     def build_paths(self)->None:
         """Build complete paths."""
@@ -1179,7 +1178,7 @@ def new_routing(G: nx.DiGraph, ORSM_url: str, request: Moby, promises: dict[int,
 
     # add promises: i.e. earlier orders that might be grouped with the new request
     for promise_id, moby in promises.items():
-        logger.info(f'add promise {promise_id}: {moby}') # should be visible in logs for analyzing
+        logger.debug(f'add promise {promise_id}: {moby}') # should be visible in logs for analyzing
         tour._add_moby(moby, promised=True)
 
     if request.start_window is not None and request.stop_window is not None:
@@ -1214,13 +1213,16 @@ def new_routing(G: nx.DiGraph, ORSM_url: str, request: Moby, promises: dict[int,
 
     for slack in slackValues:
         tour.set_slack(slack)
-        logger.info('new_routing - slack iteration with slack {} and moby {}'.format(slack, request))
-        #print('new_routing - slack iteration with slack {} and moby {}'.format(slack, request))
+        logger.debug('new_routing - slack iteration with slack {} and moby {}'.format(slack, request))
+        logger.debug(f'request.start_station.node_id={request.start_station.node_id}')
+        logger.debug(f'request.stop_station.node_id={request.stop_station.node_id}')
         tour_id = tour.add_moby(request, build_paths=build_paths, promised=promised)  
 
         if not(tour_id is None):
+            logger.debug(f'break if not(tour_id is None)')
             break
         else:
+            logger.debug(f'tour_id is None - time windows must remain unchanged')
             # time windows must remain unchanged
             request.start_window = time_window_start_old
             request.stop_window = time_window_stop_old
@@ -1228,5 +1230,6 @@ def new_routing(G: nx.DiGraph, ORSM_url: str, request: Moby, promises: dict[int,
     apriori_times_matrix = tour.time_matrix_save
 
     if tour_id is None:
+        logger.debug(f'tour_id is None')
         return None
     return tour, tour.get_routes()

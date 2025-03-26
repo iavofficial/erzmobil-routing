@@ -125,25 +125,25 @@ class Consumer():
         # This throws an error if no rabbitmq variables were set
         # Wait for RabbitMQ
         try:
-            LOGGER.info('Trying to connect consumer to %s...', parameters)
+            LOGGER.debug('Trying to connect consumer to %s...', parameters)
             self.connection = BlockingConnection(parameters)
-            LOGGER.info('Success!')
+            LOGGER.debug('Success!')
         except exceptions.ConnectionClosed as err:
             LOGGER.error('failed with: %s', err, exc_info=True)
             raise err
         self.channel = self.connection.channel()
-        LOGGER.info(f"Created channel {self.channel}")
+        LOGGER.debug(f"Created channel {self.channel}")
         self.channel.exchange_declare(exchange=EXCHANGE,
                                       exchange_type='direct')
-        LOGGER.info(f"Declared exchange {EXCHANGE}")
+        LOGGER.debug(f"Declared exchange {EXCHANGE}")
         self.result = self.channel.queue_declare(self.queue_name, exclusive=False, durable=True)
-        LOGGER.info(f"Declared queue {self.queue_name}")
+        LOGGER.debug(f"Declared queue {self.queue_name}")
         
         for key in self.callbacks:
             self.channel.queue_bind(routing_key=key,
                                     exchange=EXCHANGE,
                                     queue=self.queue_name)
-            LOGGER.info(f"Bound exchange {EXCHANGE} to queue {self.queue_name} with binding key {key}")
+            LOGGER.debug(f"Bound exchange {EXCHANGE} to queue {self.queue_name} with binding key {key}")
 
     def tear_down(self):
         if self.channel and self.channel.is_open:
@@ -155,7 +155,7 @@ class Consumer():
         """ Registers a given callback to a `routing_key`. """
 
         self.callbacks[routing_key] = callback
-        LOGGER.info(f"Registered {callback.__name__} function to {routing_key} routing key")
+        LOGGER.debug(f"Registered {callback.__name__} function to {routing_key} routing key")
 
     def run_loop(self):
         """

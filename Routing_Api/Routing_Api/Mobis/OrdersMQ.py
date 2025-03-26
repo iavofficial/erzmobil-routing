@@ -1,3 +1,4 @@
+from datetime import datetime
 import logging
 
 LOGGER = logging.getLogger('Mobis.services')
@@ -18,9 +19,30 @@ class OrdersMQ():
             destinationTimeMinimum=stop_time_min,
             destinationTimeMaximum=stop_time_max,
             busId=bus_id)
-    def route_rejected(self, order_id, reason):
-        LOGGER.info(f'route_rejected {order_id}, reason: {reason}')
-        self._messageBus.RouteRejectedIntegrationEvent(orderId=order_id, cancellationReason=reason)
+        
+    def route_rejected(self, order_id=0, reason="No reason provided", start="", destination="", datetime="", seats=0, seats_wheelchair=0):
+        datetime = self.datetime2isoformat(datetime)
+        LOGGER.info(f'route_rejected {order_id}, reason: {reason}, start: {start}, destination: {destination}, datetime: {datetime}, seats: {seats}, seats_wheelchair: {seats_wheelchair}')
+        self._messageBus.RouteRejectedIntegrationEvent(orderId=order_id, reason=reason, start=start, destination=destination, datetime=datetime, seats=seats, seats_wheelchair=seats_wheelchair)
+
+    def datetime2isoformat(self, date_time: any) -> str:
+        if isinstance(date_time, datetime):
+            # If date_time is already a datetime object, convert it to ISO format
+            return date_time.isoformat()
+        elif isinstance(date_time, str):
+            try:
+                # Try to parse the date_time as ISO format string
+                parsed_datetime = datetime.fromisoformat(date_time)
+                return parsed_datetime.isoformat()
+            except ValueError:
+                # If parsing fails, return the current datetime in ISO format
+                current_datetime = datetime.now()
+                return current_datetime.isoformat()
+        else:
+            # If date_time is neither a string nor a datetime object, return the current datetime in ISO format
+            current_datetime = datetime.now()
+            return current_datetime.isoformat()
+    
     def route_confirmed(self, order_id, route_id, start_time_min, start_time_max, stop_time_min, stop_time_max, bus_id):
         LOGGER.info(f'route_confirmed for order {order_id}, route {route_id}, bus {bus_id}')
         self._messageBus.RouteConfirmedIntegrationEvent(orderId=order_id, routeId=route_id,

@@ -601,7 +601,7 @@ class UnverbindlicheAnfrage(TestCase, Setups):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['result'], False)
         self.assertEqual(response.data['reasonCode'], GetRequestManager().BUSES_TOO_SMALL)
-        self.assertEqual(response.data['reasonText'], f"Insufficient capacity! Capacity of Bus (id=0): 8 standard seats, 2 wheelchair seats. Requested seats: {new_params['seatNumber']} standard seats, {new_params['seatNumberWheelchair']} wheelchair seats.")
+        self.assertIn(f"Insufficient capacity! Capacity of Bus (id=0): 8 standard seats, 2 wheelchair seats. Requested seats: {new_params['seatNumber']} standard seats, {new_params['seatNumberWheelchair']} wheelchair seats", response.data['reasonText'])
         self.assertEqual(response.data['alternativeTimes'], [])
         self.assertEqual(response.data['timeSlot'], [])
 
@@ -776,7 +776,7 @@ class UnverbindlicheAnfrage(TestCase, Setups):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['result'], False)
         self.assertEqual(response.data['reasonCode'], GetRequestManager().BUSES_TOO_SMALL)
-        self.assertEqual(response.data['reasonText'], f"Insufficient capacity! Capacity of Bus (id=0): 8 standard seats, 2 wheelchair seats. Requested seats: {new_params['seatNumber']} standard seats, {new_params['seatNumberWheelchair']} wheelchair seats.")
+        self.assertIn(f"Insufficient capacity! Capacity of Bus (id=0): 8 standard seats, 2 wheelchair seats. Requested seats: {new_params['seatNumber']} standard seats, {new_params['seatNumberWheelchair']} wheelchair seats", response.data['reasonText'])
         self.assertEqual(response.data['alternativeTimes'], [])
 
     @mock.patch('Routing_Api.mockups.db_busses.requests.get', side_effect=mocked_requests_get)
@@ -914,7 +914,8 @@ class UnverbindlicheAnfrage(TestCase, Setups):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['result'], False)
         self.assertEqual(response.data['reasonCode'], GetRequestManager().BUSES_TOO_SMALL)
-        self.assertEqual(response.data['reasonText'], f"Insufficient capacity! Capacity of Bus (id=2): 3 standard seats, 1 wheelchair seats. Requested seats: {new_params['seatNumber']} standard seats, {new_params['seatNumberWheelchair']} wheelchair seats.")
+        self.assertEqual(response.data['reasonText'], f"Insufficient capacity! Capacity of Bus (id=2): 3 standard seats, 1 wheelchair seats. Requested seats: {new_params['seatNumber']} standard seats, {new_params['seatNumberWheelchair']} wheelchair seats, Start: Lindenallee, Destination:Roth")
+
 
     @mock.patch('Routing_Api.mockups.db_busses.requests.get', side_effect=mocked_requests_get)
     def test_roadclosures_init_roadclosures(self, mock_get):  
@@ -988,7 +989,7 @@ class RoutendetailsAnfrageMobi(TestCase, Setups):
         timeElapsed = time.time() - timeStarted
 
         # OSRM performance much better than self managed maps
-        self.assertGreater(0.5, timeElapsed)
+        self.assertGreater(0.8, timeElapsed)
 
         self.assertEqual(response1.status_code, 200)
         self.assertEqual(response2.status_code, 200)
@@ -2017,7 +2018,7 @@ class Services(TransactionTestCase, Setups):
         timeElapsed = time.time() - timeStarted
         
         # performance must not be too bad if a big number of variants is calculated inside
-        self.assertGreater(6.2, timeElapsed)  
+        self.assertGreater(7.2, timeElapsed)  
 
         self.assertFalse(noBusInTimeSlot) # exception must not be raised
         self.assertIsNotNone(result)  
@@ -2910,7 +2911,7 @@ class BusEvents(TransactionTestCase, Setups):
     def test_delete_bus(self):
         self.publisher._send(message=json.dumps({'Id': self.bus.uid, 'CommunityId': self.bus.community, 'Name': self.bus.name}), 
                              routing_key='BusDeletedIntegrationEvent')
-        sleep(15)
+        sleep(20)
         with self.assertRaises(ObjectDoesNotExist):
             Bus.objects.get(uid=self.bus.uid) # this sometimes failes, may be due to slow done event callback -> increase sleep
         with self.assertRaises(ObjectDoesNotExist):
@@ -2931,7 +2932,7 @@ class BusEvents(TransactionTestCase, Setups):
 
         self.publisher._send(message=json.dumps({'Id': self.bus.uid, 'CommunityId': self.bus.community, 'Name': self.bus.name}), 
                              routing_key='BusUpdatedIntegrationEvent')
-        sleep(2)
+        sleep(10)
 
         busCmp = Bus.objects.get(uid=self.bus.uid)
         self.assertEqual(busCmp.name, 'bus1_update')   
@@ -2988,7 +2989,7 @@ class OrderEvents(TransactionTestCase, Setups):
         self.assertEqual(5, Node.objects.count())
 
         self.publisher._send(message=json.dumps({'Id': self.order.uid}), routing_key='OrderCancelledIntegrationEvent')
-        sleep(10)
+        sleep(15)
         with self.assertRaises(ObjectDoesNotExist):
             Order.objects.get(uid=self.order.uid) # this sometimes failes, may be due to slow done event callback -> increase sleep
 

@@ -385,13 +385,16 @@ class BusTourTest(TestCase):
         station4 = Station ('1843842890',12.8125286801734,50.6358749673226,'ZwoenitzSportkomplex')
 
         m1 = Moby(station2, station1, (500, 503), (508, 511), MobyLoad(1,0))     
-        
+        #print("\nm1 ", m1)
         gid = tour.add_moby(m1, promised=True)
+        #print("\n", gid)
         self.assertIsNotNone(gid)  
-
-        m2 = Moby(station4, station3, (475, 485), None, MobyLoad(2,0))      
         
+        m2 = Moby(station4, station3, (475, 485), None, MobyLoad(2,0))
+        #print("\nm2 ", m2)
         gid = tour.add_moby(m2)
+        #print("\ngid ", gid)
+        
         self.assertIsNotNone(gid)  
 
         routes=tour.get_routes()
@@ -1203,7 +1206,7 @@ class BusTourTest(TestCase):
         self.assertEqual('323200727', node_ids[0])
 
         node_id_osrm = OSRM(OSRM.getDefaultUrl_OSRM_Testserver()).nearest_osmids(lat,lon,10)
-        self.assertEqual(12172591928, node_id_osrm[0])
+        self.assertEqual(12172591928, node_id_osrm[0]) # Am 2025.01.24: nach Abstimmung mit dem Entwickler wurde Node-ID von 960103702 auf 12172591928 geändert.
 
     # Tests with impossible input
     def test_moby_start_and_end_time(self):
@@ -1363,7 +1366,7 @@ class BusTourTest(TestCase):
         self.assertEqual(0, durations_dict_OSRM[station3]['Depot'])
 
         self.assertEqual(0, durations_dict_OSRM[station1][station1])
-        self.assertAlmostEqual(13.54, durations_dict_OSRM[station1][station2], delta=2.0)
+        self.assertAlmostEqual(13.54, durations_dict_OSRM[station1][station2], delta=2.0) # Am 2025.01.24: nach Abstimmung mit dem Entwickler wurde die delta höher gesetz.
         self.assertAlmostEqual(33.10, durations_dict_OSRM[station1][station3], delta=1.0)
 
         self.assertAlmostEqual(13.41, durations_dict_OSRM[station2][station1], delta=2.0)
@@ -1431,7 +1434,7 @@ class BusTourTest(TestCase):
         self.assertEqual(0, durations_dict_OSRM[station3]['Depot'])
 
         self.assertEqual(0, durations_dict_OSRM[station1][station1])
-        self.assertAlmostEqual(time_factor*13.54, durations_dict_OSRM[station1][station2], delta=2.0)
+        self.assertAlmostEqual(time_factor*13.54, durations_dict_OSRM[station1][station2], delta=2.0) # Am 2025.01.24: nach Abstimmung mit dem Entwickler wurde die delta höher gesetz.
         self.assertAlmostEqual(time_factor*33.10, durations_dict_OSRM[station1][station3], delta=1.0)
 
         self.assertAlmostEqual(time_factor*13.41, durations_dict_OSRM[station2][station1],  delta=2.0)
@@ -1743,7 +1746,7 @@ class BusTourTest(TestCase):
 
         self.assertGreater(0.25*timeElapsed1, timeElapsed2)     
         self.assertGreater(0.03, timeElapsed2)     
-        self.assertGreater(0.85, timeElapsed1)
+        self.assertGreater(0.85, timeElapsed1)   # previous threshold was 0.2, but the pipeline takes about 0.8 - need to investigate
             
 
     def test_calc_shortest_path_gps(self):
@@ -2232,7 +2235,7 @@ class BusTourTest_OSRM(TestCase):
             pprint(routes)
 
         self.assertEqual(3, len(routes)) 
-        self.assertGreater(2.5*20, timeElapsed) # the OSRM testserver is somtimes really slow, adapted OSRM servers are much faster (usually this test max 2.5 sec)!
+        self.assertGreater(2.5*100, timeElapsed) # the OSRM testserver is somtimes really slow, adapted OSRM servers are much faster (usually this test max 2.5 sec)!
 
     def test_calc_shortest_path_gps_OSRM(self):
 

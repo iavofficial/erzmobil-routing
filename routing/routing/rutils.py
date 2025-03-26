@@ -366,12 +366,17 @@ def convertNodeNamesToString(G: nx.MultiDiGraph):
 
 def add_detours_from_gps(G: nx.MultiDiGraph, latlonlist: List, detours_around_in_metres: List):
     #time_started = time.time()
-
+    logger.debug(f'add_detours_from_gps')
+    
     # transform gps coords
     utm_zone = utm_zone_from_graph(G)
-    GUC = GpsUtmConverter(utm_zone)
+    logger.debug(f'utm_zone {utm_zone}')
+    GUC = GpsUtmConverter(utm_zone)    
+    logger.debug(f'GUC {GUC}')
+    logger.debug(f'latlonlist {latlonlist}')
     graph_coords = GUC.gps2utm_list(lat_lon_list=latlonlist)
-
+    logger.debug(f'graph_coords {graph_coords}')
+    
     #print(graph_coords)
     found_nodes = []
     found_indices = []
@@ -382,8 +387,11 @@ def add_detours_from_gps(G: nx.MultiDiGraph, latlonlist: List, detours_around_in
     find_all_around = []
 
     if len(detours_around_in_metres) == 0:
+        logger.debug(f'len(detours_around_in_metres) == 0')
         for coords in graph_coords:
             detours_around_in_metres.append(10)
+            
+    logger.debug(f'for maxdist in detours_around_in_metres')
 
     # set allowed distances, but minimum 50m
     # check if only best solution is wanted for detour
@@ -391,12 +399,14 @@ def add_detours_from_gps(G: nx.MultiDiGraph, latlonlist: List, detours_around_in
         max_dist_in_metres.append(max(maxdist,50))    
         find_all_around.append((maxdist > 0))
     
+    logger.debug(f'for detour_coords in graph_coords')
     for detour_coords in graph_coords:
         found_nodes.append(False)
         found_distances.append(1000000)
         found_indices_sublist = []
         found_indices.append(found_indices_sublist)
-
+        
+    logger.debug(f'for start_node, end_node, data in G.edges(data=True)')
     for start_node, end_node, data in G.edges(data=True):        
         coords_start = (G.nodes[start_node]['x'], G.nodes[start_node]['y'])
         coords_end = (G.nodes[end_node]['x'], G.nodes[end_node]['y'])
@@ -428,6 +438,7 @@ def add_detours_from_gps(G: nx.MultiDiGraph, latlonlist: List, detours_around_in
 
             index_coords+=1
 
+    logger.debug(f'for sublist in found_indices')
 
     for sublist in found_indices:        
         for (start, end) in sublist:            
@@ -437,6 +448,8 @@ def add_detours_from_gps(G: nx.MultiDiGraph, latlonlist: List, detours_around_in
     # time_elapsed = time.time() - time_started
     # print('time elapsed in add_detours_from_gps')
     # print(time_elapsed)
+    
+    logger.debug(f'found_indices, found_distances')
 
     return found_indices, found_distances
 
@@ -692,16 +705,25 @@ class GpsUtmConverter():
         return(x,y)
 
     def gps2utm_list(self, lat_lon_list) -> List:
+        logger.debug(f'gps2utm_list')
         'latitude and longitude are gps coordinates in decimal degrees'
-        p_xy = pyproj.Proj(proj='utm', zone=self.utm_zone)  
+        
+        logger.debug(f'self.utm_zone {self.utm_zone}')
+
+        p_xy = pyproj.Proj(proj='utm', zone=self.utm_zone)
+        logger.debug(f'p_xy {p_xy}')
 
         transformer = pyproj.Transformer.from_crs(self.gps, p_xy.crs, always_xy=True)
+        logger.debug(f'transformer {transformer}')
 
         result = []
 
         for lat, lon in lat_lon_list:
             x, y = transformer.transform(lon,lat)
+            logger.debug(f'x, y = {x} {y}')
             result.append((x, y))
+            
+        logger.debug(f'result')
 
         return result
 
