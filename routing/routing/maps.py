@@ -18,7 +18,9 @@ class Maps():
             self.data_dir = data_dir
             self._scan_communities()
             self._cache_nodes()
+
     def _scan_communities(self):
+        logger.debug(f'self.data_dir={self.data_dir}')
         files = os.listdir(self.data_dir)
         map_files = set([])
         for f in files:
@@ -35,29 +37,47 @@ class Maps():
     def _cache_nodes(self):
         #print('get_graph _cache_nodes')
         self.NODES_IN_COMMUNITY = dict()
-        for community in self.communities:
-            graph = self.get_graph(community)
-            self.NODES_IN_COMMUNITY[community] = set(graph.nodes())
+        self.graph = dict()
 
-    def get_graph(self, community):
-        #print('get_graph')
+        for community in self.communities:
+            self.graph[community] = self._read_graph(community)
+            self.NODES_IN_COMMUNITY[community] = set(self.graph[community].nodes())
+
+    def _read_graph(self, community):
+        #print('_read_graph')
         # for line in traceback.format_stack():
         #     print(line.strip())
 
         p_name = self.data_dir + str(community) + '.p'
         yaml_name = self.data_dir + str(community) + '.yaml'
 
-        #print(community)
+        logger.debug(f'p_name={p_name}')
+        logger.debug(f'yaml_name={yaml_name}')        
+        logger.debug(f'community={community}')
 
         if os.path.exists(p_name):
+            logger.debug(f'{p_name} exists')
             graph = self.load_graph_pickle(p_name) 
             #pickle.dump(graph, open(p_name + '2', 'wb'))
-        elif os.path.exists(yaml_name):
+        elif os.path.exists(yaml_name):            
+            logger.debug(f'{p_name} NOT exists but {yaml_name} exists')
             graph = self.load_graph_yaml(yaml_name)            
             pickle.dump(graph, open(p_name, 'wb'))
         else:
+            logger.debug(f'{p_name} and {yaml_name} NOT exists')
             raise FileNotFoundError(yaml_name)
         return graph
+    
+    def get_graph(self, community):
+        community_ = str(community)
+
+        if not community_ in self.graph.keys():   
+            logger.info('get_graph community ' + community_ + ' must be loaded...')              
+            self.graph[community_] = self._read_graph(community_)
+            self.NODES_IN_COMMUNITY[community_] = set(self.graph[community_].nodes())
+
+        from copy import deepcopy
+        return deepcopy(self.graph[community_])
 
     def save_graph(self, community, G):
         # node names must be string
@@ -68,7 +88,7 @@ class Maps():
             pickle.dump(G_save, file)
     
     def load_graph_yaml(self, infile: str)->nx.DiGraph:  
-        logger.info('load_graph_yaml from file ' + infile + ' ...')        
+        logger.debug('load_graph_yaml from file ' + infile + ' ...')        
          
         import yaml
         graph = None
@@ -87,19 +107,33 @@ class Maps():
             if labels:
                 nx.relabel_nodes(graph, labels, copy=False)
 
-        logger.info('load_graph_yaml from file ' + infile + ' done')        
+        logger.debug('load_graph_yaml from file ' + infile + ' done')        
 
         return graph    
 
-    def load_graph_pickle(self, infile: str)->nx.DiGraph:
-        logger.info('load_graph_pickle from file ' + infile + ' ...')        
+    def load_graph_pickle(self, infile: str) -> nx.DiGraph:
+        logger.debug('load_graph_pickle from file ' + infile + ' ...')        
         graph = None
-        
-        with open(infile, 'rb') as file:
-            graph = pickle.load(file)
 
-        logger.info('load_graph_pickle from file ' + infile + ' done')    
-
+        try:
+            with open(infile, 'rb') as file:
+                logger.debug(f'with open(infile, rb) as file ({infile})')                
+                graph = pickle.load(file)
+            logger.debug(f'load_graph_pickle from file {infile} done')
+        except FileNotFoundError:
+            logger.error(f'File not found {infile}')
+        except IOError:
+            logger.error(f'An error occurred while opening the file {infile}')
+        except TypeError as te:
+            logger.error(f'TypeError: {te}')
+        except Exception as err:
+            logger.error(f'Exception: {err}')
+        finally:
+            logger.debug(f'load_graph_pickle finished')
+        if graph is None or len(graph) <= 0:
+            logger.warning(f'Graph is None or empty')
+        else:
+            logger.debug(f'len(graph)=={len(graph)}')
         return graph
 
     # todo bei Verwendung von OSRM und weglassen des Einlesens von Maps muss das woanders her kommen (geht das mit OSRM?)

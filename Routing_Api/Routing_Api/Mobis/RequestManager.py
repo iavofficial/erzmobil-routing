@@ -48,16 +48,60 @@ def rabbit_callback(fields):
                 del method
                 del properties
                 message = unpack_message(body=body, fields=fields)
+                print(f"Der Name der Funktion ist: {fun.__name__}")
+                LOGGER.debug(f"Der Name der Funktion ist: {fun.__name__}")
+                
+                if (fun.__name__ == "OrderStartedCallback"):
+                    if (not validate_OrderStartedCallback_input(message)):
+                        raise ValueError("Invalid input for OrderStartedCallback input parameters:" + str(message))
+
                 close_old_connections()
                 return fun(self, message)
+            
             except Exception as e:
-                LOGGER.error(f'Error in rabbit_callback wrapper: {e}')
+                LOGGER.error(f'Error in rabbit_callback wrapper method: {e}')
                 raise e
-
+            
         return wrapper
 
     return message_decorator
 
+def validate_OrderStartedCallback_input(message):
+    isMessageValid = True
+
+    if hasattr(message, 'StartLatitude') and hasattr(message, 'StartLongitude'):
+        if (not message.StartLatitude):
+            LOGGER.warning(f'StartLatitude is NOT valid: {message.StartLatitude}')
+            isMessageValid=False
+        if (not message.StartLongitude):
+            LOGGER.warning(f'StartLongitude is NOT valid: {message.StartLongitude}')
+            isMessageValid=False
+    if hasattr(message, 'EndLatitude') and hasattr(message, 'EndLongitude'):
+        if (not message.EndLatitude):
+            LOGGER.warning(f'EndLatitude is NOT valid: {message.EndLatitude}')
+            isMessageValid=False
+        if (not message.EndLongitude):
+            LOGGER.warning(f'EndLongitude is NOT valid: {message.EndLongitude}')
+            isMessageValid=False
+    if hasattr(message, 'Time'):
+        if (not  message.Time):
+            LOGGER.warning(f'time is NOT valid: {time}')
+            isMessageValid=False
+    if hasattr(message, 'Seats'):
+        if (not message.Seats):
+            LOGGER.warning(f'number of seats is NOT valid: {message.Seats}')
+            isMessageValid=False
+    if hasattr(message, 'SeatsWheelchair'):
+        if (message.SeatsWheelchair < 0):
+            LOGGER.warning(f'number of seatsWheelchair is NOT valid: {message.SeatsWheelchair}')
+            isMessageValid=False
+        
+    if (isMessageValid):
+        LOGGER.debug(f'message is valid: {str(message)}')
+    else:
+        LOGGER.warning(f'message is invalid: {str(message)}')
+        
+    return isMessageValid
 
 class MalformedMessage(Exception):
     pass
@@ -82,7 +126,7 @@ def unpack_message(body=None, fields=None):
 
     class Message:
         def __init__(self, data):
-            LOGGER.info(f'Message data: {data}')
+            LOGGER.debug(f'Message data: {data}')
             self.__dict__ = data
 
     try:
@@ -97,17 +141,20 @@ def unpack_message(body=None, fields=None):
             # If body bytes are, convert to string
             if isinstance(body, bytes):
                 body = body.decode('utf-8')
-                LOGGER.info(f'decodeed body to utf-8: {body}')
-                
+                LOGGER.debug(f'decodeed body to utf-8: {body}')
+            
+            LOGGER.debug(f'json.loads(body) #1')
             # Convert the JSON-String to Dictionary
             data = json.loads(body)
             if not isinstance(data, dict):
+                LOGGER.debug(f'json.loads(body) #2')
                 data = json.loads(data)
-            LOGGER.info(f'data: {data}')
+            LOGGER.debug(f'data: {data}')
 
         # Verify that all required fields are present
         missing_fields = [field for field in fields if field not in data]
         if missing_fields:
+            LOGGER.debug(f'missing fields: {missing_fields}')
             raise ValueError(f'missing fields {missing_fields}, got {body}')
         return Message(data)
 
@@ -191,14 +238,13 @@ class RequestManager:
     @rabbit_callback(fields=['Id', 'CommunityId', 'Name'])
     def BusDeletedIntegrationCallback(self, message):
         """Deletes the bus and all routes which were planned for this bus. """
-        LOGGER.info(f'BusDeletedIntegrationCallback')
+        LOGGER.debug(f'BusDeletedIntegrationCallback')
         # retrieve the bus with the matching id from the db
         bus = self.Busses._busses.objects.get(uid=message.Id)
         for route in self.Routes._routes.objects.filter(bus=bus):
             for order in route.clients():  # route.clients() returns a set of order ids
                 self.cancel_order(order_id=order)
-                self.Orders.route_rejected(
-                    order_id=order, reason='The bus for which this route was planned got deleted.')
+                self.Orders.route_rejected(order_id=order, reason='The bus for which this route was planned got deleted.')
             route.delete()
         self.Busses._busses.objects.filter(uid=message.Id).delete()
 
@@ -208,7 +254,7 @@ class RequestManager:
         Updates a bus object in the database and then checks if it still has enough capacity for its routes,
         deleting any excess routes and orders. If no routes remain, it deletes the bus object.
         """
-        LOGGER.info(f'BusUpdatedIntegrationCallback')
+        LOGGER.debug(f'BusUpdatedIntegrationCallback')
         bus = self.Busses.refresh_bus(bus_id=message.Id)
 
         # check capacities
@@ -218,8 +264,7 @@ class RequestManager:
                 # route.clients() returns a set of order ids
                 for order in reversed(sorted(route.clients())):
                     self.cancel_order(order_id=order)
-                    self.Orders.route_rejected(
-                        order_id=order, reason='The bus for which this route was planned got deleted.')
+                    self.Orders.route_rejected(order_id=order, reason='The bus for which this route was planned got deleted.')
 
                     # stop deleting orders if capa is sufficient
                     if bus.capa_sufficient_for_load(route.needed_capacity):
@@ -236,7 +281,7 @@ class RequestManager:
     @rabbit_callback(fields=['Id', 'CommunityId', 'Name', 'Latitude', 'Longitude'])
     def StopAddedIntegrationCallback(self, message):
         """ Updates the stations table in the database by adding the new station. """
-        LOGGER.info(f'StopAddedIntegrationCallback')
+        LOGGER.debug(f'StopAddedIntegrationCallback')
         # todo test dafuer schreiben und am besten mit graph und mit OSRM testen -> macht es was aus, dass die ID bei OSRM anders ist?
         mapId = self.nearest_node(
             message.CommunityId,
@@ -257,7 +302,7 @@ class RequestManager:
         self.StopUpdatedCore(message)
 
     def StopUpdatedCore(self, message):
-        LOGGER.info(f'StopUpdatedIntegrationCallback')
+        LOGGER.debug(f'StopUpdatedIntegrationCallback')
 
         from django.core.exceptions import ObjectDoesNotExist
 
@@ -290,13 +335,12 @@ class RequestManager:
                     if node.route.status == Route.BOOKED or node.route.status == Route.DRAFT:  # DO NOT CHANGE FINISHED ROUTES!
                         for order in node.hopOns.all() | node.hopOffs.all():
                             rejectedOrders.append(order.uid)
-                            self.Orders.route_rejected(order_id=order.uid,
-                                                       reason=f"Start or destination of order (id = {order.uid}) has changed! Old stop: {station.name} ({station.latitude}, {station.longitude}), New stop: {message.Name} ({message.Latitude}, {message.Longitude})")
+                            self.Orders.route_rejected(order_id=order.uid,reason=f"Start or destination of order (id = {order.uid}) has changed! Old stop: {station.name} ({station.latitude}, {station.longitude}), New stop: {message.Name} ({message.Latitude}, {message.Longitude})", seats=order.load, seats_wheelchair=order.loadWheelchair)
                             order.delete()
                         node.delete()
 
-        except ObjectDoesNotExist:
-            LOGGER.warning(f'StopUpdatedCore: station to update not found')
+        except ObjectDoesNotExist as err:
+            LOGGER.error(f'StopUpdatedCore: station to update not found: {err}')
             pass
 
         self.Stations.update(
@@ -312,7 +356,7 @@ class RequestManager:
     @rabbit_callback(fields=['Id', 'CommunityId', 'Name', 'Latitude', 'Longitude'])
     def StopDeletedIntegrationCallback(self, message):
         """ Rejects and deletes any orders that have the deleted node as a hop-on or hop-off and then deletes the node itself. """
-        LOGGER.info(f'StopDeletedIntegrationCallback')
+        LOGGER.debug(f'StopDeletedIntegrationCallback')
         from django.core.exceptions import ObjectDoesNotExist
 
         try:
@@ -324,20 +368,20 @@ class RequestManager:
             for node in nodes:
                 if node.equalsStation(station):
                     for order in node.hopOns.all() | node.hopOffs.all():
-                        self.Orders.route_rejected(order_id=order.uid,
-                                                   reason=f"Start or destination of order (id = {order.uid}) has been deleted! Deleted stop: {station.name} ({station.latitude}, {station.longitude})")
+                        self.Orders.route_rejected(order_id=order.uid, reason=f"Start or destination of order (id = {order.uid}) has been deleted! Deleted stop: {station.name} ({station.latitude}, {station.longitude})", seats=order.load, seats_wheelchair=order.loadWheelchair)
                         order.delete()
                     node.delete()
 
             station.delete()
 
-        except ObjectDoesNotExist:
+        except ObjectDoesNotExist as err:
+            LOGGER.error(f'ObjectDoesNotExist Exception in StopDeletedIntegrationCallback: {err}')
             pass
 
     @rabbit_callback(fields=['BusId', 'Latitude', 'Longitude'])
     def UpdateBusPositionCallback(self, message):
         """ Updates the position of the bus in the database by setting the latitude and longitude from the received message. """
-        LOGGER.info(f'UpdateBusPositionCallback')
+        LOGGER.debug(f'UpdateBusPositionCallback')
         self.Busses.update(
             bus_id=message.BusId, latitude=message.Latitude, longitude=message.Longitude)
 
@@ -345,15 +389,14 @@ class RequestManager:
     @transaction.atomic
     def OrderCancelledCallback(self, message):
         """ Cancels the order with the corresponding id. """
-        LOGGER.info(f'OrderCancelledCallback order id: {message.Id}')
+        LOGGER.debug(f'OrderCancelledCallback order id: {message.Id}')
         try:
             self.cancel_order(order_id=message.Id)
-        except ObjectDoesNotExist:
+        except ObjectDoesNotExist as err:
+            LOGGER.error(f'StopUpdatedCore: station to update not found: {err}')
             pass
 
-    @rabbit_callback(
-        fields=['Id', 'StartLatitude', 'StartLongitude', 'EndLatitude', 'EndLongitude', 'IsDeparture', 'Time', 'Seats',
-                'SeatsWheelchair'])
+    @rabbit_callback(fields=['Id', 'StartLatitude', 'StartLongitude', 'EndLatitude', 'EndLongitude', 'IsDeparture', 'Time', 'Seats','SeatsWheelchair'])
     # if any part of this method fails, the entire database transaction will be rolled back
     @transaction.atomic
     def OrderStartedCallback(self, message):
@@ -377,37 +420,39 @@ class RequestManager:
             stopWindow = (time - relativedelta(minutes=10), time)
 
         try:
-            self.order(start_location=startLocation, stop_location=stopLocation, start_window=startWindow,
-                       stop_window=stopWindow, load=message.Seats, loadWheelchair=message.SeatsWheelchair,
-                       order_id=message.Id)
+            self.order(start_location=startLocation, stop_location=stopLocation, start_window=startWindow, stop_window=stopWindow, load=message.Seats, loadWheelchair=message.SeatsWheelchair, order_id=message.Id)
         except DuplicatedOrder as err:
-            LOGGER.warning('Order_id already exists: %s', err,
-                           extra={'body': message}, exc_info=True)
+            LOGGER.error('DuplicatedOrder, Order_id already exists: %s', err, extra={'body': message}, exc_info=True)
         except CommunityConflict as err:
-            self.Orders.route_rejected(order_id=message.Id, reason=err.message)
+            LOGGER.error(f'CommunityConflict exception: {err}')
+            self.Orders.route_rejected(order_id=message.Id, reason=err.message, start=str(startLocation), destination=str(stopLocation), datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
         except SameStop as err:
-            self.Orders.route_rejected(order_id=message.Id, reason=err.message)
+            LOGGER.error(f'SameStop exception: {err}')
+            self.Orders.route_rejected(order_id=message.Id, reason=err.message, start=str(startLocation), destination=str(stopLocation), datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
         except NoStop as err:
-            self.Orders.route_rejected(order_id=message.Id, reason=err.message)
+            LOGGER.error(f'NoStop exception: {err}')
+            self.Orders.route_rejected(order_id=message.Id, reason=err.message, start=str(startLocation), destination=str(stopLocation), datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
         except NoBuses as err:
-            self.Orders.route_rejected(order_id=message.Id, reason=err.message)
+            LOGGER.error(f'NoBuses exception: {err}')
+            self.Orders.route_rejected(order_id=message.Id, reason=err.message, start=str(startLocation), destination=str(stopLocation), datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
         except NoBusesDueToBlocker as err:
-            self.Orders.route_rejected(order_id=message.Id, reason=err.message)
+            LOGGER.error(f'NoBusesDueToBlocker exception: {err}')
+            self.Orders.route_rejected(order_id=message.Id, reason=err.message, start=str(startLocation), destination=str(stopLocation), datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
         except BusesTooSmall as err:
-            self.Orders.route_rejected(order_id=message.Id, reason=err.message)
+            LOGGER.error(f'BusesTooSmall exception: {err}')
+            LOGGER.error(f'stop: {stopLocation}')
+            self.Orders.route_rejected(order_id=message.Id, reason=err.message, start=str(startLocation), destination=str(stopLocation), datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
         except InvalidTime as err:
-            self.Orders.route_rejected(order_id=message.Id, reason=err.message)
+            LOGGER.error(f'InvalidTime exception: {err}')
+            self.Orders.route_rejected(order_id=message.Id, reason=err.message, start=str(startLocation), destination=str(stopLocation), datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
         except InvalidTime2 as err:
-            self.Orders.route_rejected(order_id=message.Id, reason=err.message)
-
+            LOGGER.error(f'InvalidTime2 exception: {err}')
+            self.Orders.route_rejected(order_id=message.Id, reason=err.message, start=str(startLocation), destination=str(stopLocation), datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
         except Exception as err:
-            self.Orders.route_rejected(
-                order_id=message.Id, reason=f'an error occurred: {err}')
-            LOGGER.error('Order could not be processed: %s', err,
-                         extra={'body': message}, exc_info=True)
-
-    def order(self, start_location, stop_location, start_window, stop_window, load=1, loadWheelchair=0, group_id=None,
-              order_id=None):
+            self.Orders.route_rejected(order_id=message.Id, reason=f'Order could not be processed: {err}', start=str(startLocation), destination=str(stopLocation), datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
+            LOGGER.error('Order could not be processed: %s', err, extra={'body': message}, exc_info=True)
+        
+    def order(self, start_location, stop_location, start_window, stop_window, load=1, loadWheelchair=0, group_id=None, order_id=None):
         """
         Creates a new order and attempts to find a route for it.
         If a route is found, it commits the order and returns the order ID.
@@ -415,19 +460,16 @@ class RequestManager:
         """
 
         LOGGER.info(f'order {order_id}')
-        results, time_slot, original_time_found = self.new_request(start_location, stop_location, start_window,
-                                                                   stop_window, MobyLoad(
-                load, loadWheelchair), group_id, order_id, RequestManagerConfig.ALTERNATIVE_SEARCH_NONE)
+        results, time_slot, original_time_found = self.new_request(start_location, stop_location, start_window, stop_window, MobyLoad(load, loadWheelchair), group_id, order_id, RequestManagerConfig.ALTERNATIVE_SEARCH_NONE)
         (solution, comment, start_window, stop_window) = results[0]
 
         if solution is None:
-            LOGGER.info('found no valid solution for request')
-            self.Orders.route_rejected(order_id=order_id, reason=comment)
+            LOGGER.debug('found no valid solution for request')
+            self.Orders.route_rejected(order_id=order_id, reason=comment, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
             return None
 
         if solution['type'] == 'new':
-            self.Routes.commit_order(
-                order_id=order_id, load=load, loadWheelchair=loadWheelchair, group_id=group_id)
+            self.Routes.commit_order(order_id=order_id, load=load, loadWheelchair=loadWheelchair, group_id=group_id)
             self.Routes.commit(solution['routes'], self.Orders)
             order_entry = self.Routes._orders.objects.get(uid=order_id)
             route = self.Routes.contains_order(order_id)
@@ -451,12 +493,10 @@ class RequestManager:
             stop_station = stops[0]
             solution['restrictions'] = start_station, stop_station, start_window, stop_window, load, loadWheelchair
             # assign an order to a route
-            self.Routes.hop_on(
-                solution['routes'], solution['restrictions'], order_id, self.Orders)
+            self.Routes.hop_on(solution['routes'], solution['restrictions'], order_id, self.Orders)
             return order_id
 
-        self.Orders.route_rejected(
-            order_id=order_id, reason='unexpected case: solution type is neither "new" nor "free"')
+        self.Orders.route_rejected(order_id=order_id, reason='unexpected case: solution type is neither "new" nor "free"', start=start_location, stop=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
         raise ValueError('solution type is neither new nor free')
 
     LOGGER = logging.getLogger(__name__)
@@ -466,7 +506,7 @@ class RequestManager:
         Cancels an order with the specified ID and removes it from the list of orders.
         Also removes any associated hop-on or hop-off nodes that become empty after the order is deleted.
         """
-        LOGGER.info(f'cancel_order {order_id}')
+        LOGGER.debug(f'cancel_order {order_id}')
 
         try:
             order = self.Routes._orders.objects.get(uid=order_id)
@@ -485,13 +525,12 @@ class RequestManager:
             LOGGER.error(f'Error removing order with ID {order_id}: {e}')
             return
 
-        LOGGER.info(
-            f'remove hopOn or hopOff nodes that are empty after order delete:')
+        LOGGER.debug(f'remove hopOn or hopOff nodes that are empty after order delete:')
         try:
             for node in self.Routes._nodes.objects.all():
                 if not node.has_order:
                     if node.id == hopOnNode.id or node.id == hopOffNode.id:
-                        LOGGER.info(f'delete empty node {node.id}')
+                        LOGGER.debug(f'delete empty node {node.id}')
                         node.delete()
         except Exception as e:
             LOGGER.error(f'Error processing nodes after order deletion: {e}')
@@ -499,7 +538,7 @@ class RequestManager:
     def is_bookable(self, start_location, stop_location, start_window, stop_window, load=1, loadWheelchair=0,
                     group_id=None, alternatives_mode=RequestManagerConfig.ALTERNATIVE_SEARCH_NONE):
         """Return result, code and message for a given request."""
-        LOGGER.info(f'is_bookable')
+        LOGGER.debug(f'is_bookable')
 
         times_found = []
         time_slot_min_max = []  # hier noch das Zeitfenster, das geprueft wurde, draufschreiben
@@ -548,51 +587,66 @@ class RequestManager:
                         reason = f"No routing found for request - Start: {starts[0].name} {start_location}, Destination: {stops[0].name} {stop_location}, Time: {results_all[0][2][0].strftime('%Y/%m/%d, %H:%M')} (UTC), Seats: {load} standard, {loadWheelchair} wheelchair."
                         result = (False, self.NO_ROUTING, reason,
                                   times_found, time_slot_min_max)
-                        self.Orders.route_rejected(order_id=-1, reason=reason)
+                        self.Orders.route_rejected(order_id=-1, reason=reason, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
                     else:
                         reason = f"No routing found for request (including alternatives search) - Start: {starts[0].name} {start_location}, Destination: {stops[0].name} {stop_location}, Time: {results_all[0][2][0].strftime('%Y/%m/%d, %H:%M')} (UTC), Seats: {load} standard, {loadWheelchair} wheelchair."
                         result = (False, self.NO_BUSES_NO_ALTERNATIVE_FOUND,
                                   reason, times_found, time_slot_min_max)
-                        self.Orders.route_rejected(order_id=-1, reason=reason)
-
+                        self.Orders.route_rejected(order_id=-1, reason=reason, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
             except SameStop as err:
-                self.Orders.route_rejected(order_id=-1, reason=err.message)
+                msg = f'SameStop Exception: {err}'
+                LOGGER.error(msg)
+                self.Orders.route_rejected(order_id=-1, reason=msg, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
                 result = (False, self.SAME_STOPS, err.message,
                           times_found, time_slot_min_max)
             except NoStop as err:
-                self.Orders.route_rejected(order_id=-1, reason=err.message)
+                msg = f'NoStop Exception: {err}'
+                LOGGER.error(msg)
+                self.Orders.route_rejected(order_id=-1, reason=msg, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
                 result = (False, self.NO_STOPS, err.message,
                           times_found, time_slot_min_max)
             except CommunityConflict as err:
-                self.Orders.route_rejected(order_id=-1, reason=err.message)
+                msg = f'CommunityConflict Exception: {err}'
+                LOGGER.error(msg)
+                self.Orders.route_rejected(order_id=-1, reason=msg, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
                 result = (False, self.NO_COMMUNITY, err.message,
                           times_found, time_slot_min_max)
             except NoBuses as err:
-                self.Orders.route_rejected(order_id=-1, reason=err.message)
+                msg = f'NoBuses Exception: {err}'
+                LOGGER.error(msg)
+                self.Orders.route_rejected(order_id=-1, reason=msg, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
                 result = (False, self.NO_BUSES, err.message,
                           times_found, time_slot_min_max)
             except NoBusesDueToBlocker as err:
-                self.Orders.route_rejected(order_id=-1, reason=err.message)
+                msg = f'NoBusesDueToBlocker Exception: {err}'
+                LOGGER.error(msg)
+                self.Orders.route_rejected(order_id=-1, reason=msg, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
                 result = (False, self.NO_BUSES_DUE_TO_BLOCKER,
                           err.message, times_found, time_slot_min_max)
             except BusesTooSmall as err:
-                self.Orders.route_rejected(order_id=-1, reason=err.message)
+                msg = f'BusesTooSmall Exception: {err}'
+                LOGGER.error(msg)
+                self.Orders.route_rejected(order_id=-1, reason=msg, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
                 result = (False, self.BUSES_TOO_SMALL, err.message,
                           times_found, time_slot_min_max)
             except InvalidTime as err:
-                self.Orders.route_rejected(order_id=-1, reason=err.message)
+                msg = f'InvalidTime Exception: {err}'
+                LOGGER.error(msg)
+                self.Orders.route_rejected(order_id=-1, reason=msg, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
                 result = (False, self.WRONG_TIME_PAST, err.message,
                           times_found, time_slot_min_max)
             except InvalidTime2 as err:
-                self.Orders.route_rejected(order_id=-1, reason=err.message)
+                msg = f'InvalidTime2 Exception: {err}'
+                LOGGER.error(msg)
+                self.Orders.route_rejected(order_id=-1, reason=msg, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
                 result = (False, self.WRONG_TIME_FUTURE, err.message,
                           times_found, time_slot_min_max)
-
             return result
+        
         except Exception as err:  # catch any other exceptions
-            self.Orders.route_rejected(
-                order_id=-1, reason=('uncaught exception %s', err))
-            LOGGER.error('uncaught exception %s', err, exc_info=True)
+            msg = f'uncaught exception : {err}'
+            LOGGER.error(msg, exc_info=True)
+            self.Orders.route_rejected(order_id=-1, reason=msg, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
             raise err
 
     def order2route(self, order_id):
@@ -602,10 +656,10 @@ class RequestManager:
 
     def new_request_eval_start_stop(self, start_location, stop_location):
         # get all bus stops around the start and stop position
-        LOGGER.info(f'startLocation: {start_location}, stopLocation: {stop_location}')
+        LOGGER.debug(f'startLocation: {start_location}, stopLocation: {stop_location}')
         [starts, stops] = self.Stations.get_stops_by_geo_locations(
             [start_location, stop_location])
-        LOGGER.info(f'starts: {starts}, stops: {stops}')
+        LOGGER.debug(f'starts: {starts},\n stops: {stops}')
 
         if not starts:
             raise NoStop(message=f"No bus stop was found for the given start location (lat: {start_location[0]}, long: {start_location[1]})!")
@@ -633,11 +687,15 @@ class RequestManager:
             raise CommunityConflict(reason)
 
         if len(communities) == 1:
+            LOGGER.info(f'communities={communities}')
             community = communities.pop()
 
         # only keep stops in non-overlapping community
         starts = list(filter(lambda s: s.community == community, starts))
         stops = list(filter(lambda s: s.community == community, stops))
+
+        LOGGER.info(f'starts={starts}')
+        LOGGER.info(f'stops={stops}')
 
         # keep only one of each for now
         start = starts[0]
@@ -743,7 +801,7 @@ class RequestManager:
                     load: MobyLoad = MobyLoad(1, 0), group_id=None, order_id=None,
                     alternatives_mode=RequestManagerConfig.ALTERNATIVE_SEARCH_NONE, build_paths=True):
         """ Try to generate a solution for a given request and return a descriptive dictionary if there is one, or None. """
-        LOGGER.info(f'new_request with order_id {order_id}, start_window_orig{start_window_orig}, stop_window_orig{stop_window_orig}')
+        LOGGER.debug(f'new_request with order_id {order_id}, start_window_orig{start_window_orig}, stop_window_orig{stop_window_orig}')
         timeStarted = time.time()
 
         result: List = []
@@ -751,7 +809,7 @@ class RequestManager:
         original_time_found = False
 
         if self.OSRM_activated:
-            LOGGER.info(f'OSRM is used for routing')
+            LOGGER.debug(f'OSRM is used for routing')
 
         from routing.routingClasses import Moby, Trip
         reason = ''
@@ -767,8 +825,7 @@ class RequestManager:
 
         # todo try/catch does not currently work with tests, since mock times cannot be injected appropriately
         # try:
-        start_windows, stop_windows = self.new_request_eval_time_windows(
-            start_window_orig, stop_window_orig, alternatives_mode)
+        start_windows, stop_windows = self.new_request_eval_time_windows(start_window_orig, stop_window_orig, alternatives_mode)
         # except InvalidTime as err:
         #     err.message = f"{err.message}, Start: {start.name} {start_location}, Destination: {stop.name} {stop_location}"
         #     raise err
@@ -785,13 +842,13 @@ class RequestManager:
                 raise DuplicatedOrder(reason)
 
         # todo this might be shifted before new_request_eval_time_windows since then addtional station info can be added to error message
-        start, stop, community = self.new_request_eval_start_stop(
-            start_location, stop_location)
-        station_start = Station(
-            node_id=start.mapId, longitude=start.longitude, latitude=start.latitude)
-        station_stop = Station(
-            node_id=stop.mapId, longitude=stop.longitude, latitude=stop.latitude)
+        start, stop, community = self.new_request_eval_start_stop(start_location, stop_location)
+        station_start = Station(node_id=start.mapId, longitude=start.longitude, latitude=start.latitude)
+        station_stop = Station(node_id=stop.mapId, longitude=stop.longitude, latitude=stop.latitude)
 
+        LOGGER.info(f'station_start.node_id={station_start.node_id} , start.mapId={start.mapId}')
+        LOGGER.info(f'station_stop.node_id={station_stop.node_id} , stop.mapId={stop.mapId}')
+        
         # eval al available busses for all requested times at once - performance!
         start_times = []
         stop_times = []
@@ -821,7 +878,7 @@ class RequestManager:
 
         (busses_for_times, time_in_blocker) = self.Busses.get_available_buses(
             community=community, start_times=start_times, stop_times=stop_times)
-        LOGGER.info(f'available busses calculated {busses_for_times}')
+        LOGGER.debug(f'available busses calculated {busses_for_times}')
 
         # if the first solution works, we do not calc alternatives
         break_if_first_window_works = True
@@ -868,10 +925,12 @@ class RequestManager:
             # print(busses_for_times)
 
             # Check precomputed routes for an open spot and exit if we find one
+            LOGGER.debug(f'get_free_routes')
             free_routes = self.Routes.get_free_routes(community=community, start_location=start, stop_location=stop,
                                                       start_window=start_window_current,
                                                       stop_window=stop_window_current, load=load)
             if free_routes:
+                LOGGER.debug(f'free_routes exists')
                 solution = {'type': 'free', 'routes': free_routes}
                 result.append(
                     (solution, reason, start_window_current, stop_window_current))
@@ -882,19 +941,22 @@ class RequestManager:
                 if windowIndex == 0 and break_if_first_window_works:
                     return result, time_slot_complete, original_time_found
             else:
+                LOGGER.debug(f'free_routes NOT exists')
                 # Apparently, there's no fitting solution yet, so let's find one!
                 request = Moby(start=station_start, stop=station_stop,
                                start_window=start_window_current, stop_window=stop_window_current, load=load)
                 request.order_id = order_id
+                LOGGER.debug(f'order_id={order_id}')
                 # TODO: not yet in use, clarify when to implement
                 mandatory_stations = self.Stations.get_mandatory_stations(
                     community=community, before=stop_window_current, after=start_window_current)
-
+                LOGGER.debug(f'mandatory_stations={mandatory_stations}')
                 reason = ''
                 busses = busses_for_times[windowIndex]
-
+                LOGGER.debug(f'busses={busses}')
                 bus_ids = [bus.id for bus in busses]
                 vehicle_types = [bus.vehicleType for bus in busses]
+                LOGGER.debug(f'vehicle_types={vehicle_types}')
 
                 # Can't solve if we have no busses in time window
                 if len(bus_ids) == 0:
@@ -902,7 +964,7 @@ class RequestManager:
                         f"No busses available at this time! Requested departure time: {start_window_current[0].strftime('%Y/%m/%d, %H:%M')} (UTC), Start: {start.name} {start_location}, Destination: {stop.name} {stop_location}" if start_window_orig
                         else f"No busses available at this time! Requested arrival time: {stop_window_current[1].strftime('%Y/%m/%d, %H:%M')} (UTC), Start: {start.name} {start_location}, Destination: {stop.name} {stop_location}" if stop_window_orig
                         else f"No busses available at this time! Start: {start.name} {start_location}, Destination: {stop.name} {stop_location}")
-                    LOGGER.info(reason)
+                    LOGGER.debug(reason)
                     result.append(
                         (None, reason, start_window_current, stop_window_current))
                     if len(busses_for_times) < 2:
@@ -918,10 +980,9 @@ class RequestManager:
                         busses_too_small = False
 
                 if busses_too_small:
-                    reason = f"Insufficient capacity! Capacity of Bus (id={busses[0].id}): {busses[0].capacity.maxNumStandardSeats} standard seats, {busses[0].capacity.maxNumWheelchairs} wheelchair seats. Requested seats: {load.standardSeats} standard seats, {load.wheelchairs} wheelchair seats."
-                    LOGGER.info(reason)
-                    result.append(
-                        (None, reason, start_window_current, stop_window_current))
+                    reason = f"Insufficient capacity! Capacity of Bus (id={busses[0].id}): {busses[0].capacity.maxNumStandardSeats} standard seats, {busses[0].capacity.maxNumWheelchairs} wheelchair seats. Requested seats: {load.standardSeats} standard seats, {load.wheelchairs} wheelchair seats, Start: {start.name}, Destination:{stop.name}"
+                    LOGGER.debug(reason)
+                    result.append((None, reason, start_window_current, stop_window_current))
                     if len(busses_for_times) < 2:
                         raise BusesTooSmall(message=reason)
                     else:
@@ -932,9 +993,11 @@ class RequestManager:
                 promises = self.Routes.get_promises(
                     bus_ids=bus_ids, start_time=start_window_current[0] if start_window_current else None,
                     stop_time=stop_window_current[1] if stop_window_current else None)
-
+                LOGGER.debug(f'promises={promises}')
+                
                 t_ref, request, promises, mandatory_stations, busses = self.normalize_dates(
                     request, promises, mandatory_stations, busses)
+                LOGGER.debug(f'normalized_dates')
 
                 # generate graph including road closures do this only once due to performance!
 
@@ -946,21 +1009,25 @@ class RequestManager:
                 # graph
                 closuresListLatLon = self.RoadClosures.getRoadClosuresList(
                     bus_ids, vehicle_types)
+                LOGGER.debug(f'closuresListLatLon={closuresListLatLon}')
 
                 if self.OSRM_activated == False and graph is None:
+                    LOGGER.debug(f'self.OSRM_activated == False and graph is None')
                     if self.Maps != None:
-                        # print('get graph services')
-
-                        graph_tmp = self.Maps.get_graph(community)
-
+                        LOGGER.debug(f'community={community}')
+                                                
+                        graph_tmp = self.Maps.get_graph(community) # sometimes SIGSEGV with ERROR 139
+                        LOGGER.debug(f'graph_tmp is loaded')
+                        
                         if len(closuresListLatLon):
                             # attach road closures to graph
                             # print("attach detours to graph")
                             # print(closuresListLatLon)
-                            add_detours_from_gps(
-                                graph_tmp, closuresListLatLon, [])
+                            LOGGER.debug(f'len(closuresListLatLon)>0')
+                            add_detours_from_gps(graph_tmp, closuresListLatLon, [])
 
                         graph = multi2single(graph_tmp)
+                        LOGGER.debug(f'graph = multi2single(graph_tmp)')
 
                 elif self.OSRM_activated and len(closuresListLatLon) > 0:
                     LOGGER.error("Road closures not implemented for OSRM!")
@@ -969,18 +1036,18 @@ class RequestManager:
                                'time_offset_factor': self.Config.timeOffset_FactorForDrivingTimes,
                                'time_service_per_wheelchair': self.Config.timeService_per_wheelchair}
                 optionsDict['build_paths'] = build_paths
-
+                
                 # reduce slack iteration for performance reasons if alternative time windows are under consideration
                 if windowIndex > 0 and alternatives_mode != RequestManagerConfig.ALTERNATIVE_SEARCH_NONE:
+                    LOGGER.debug(f'windowIndex > 0 and alternatives_mode != RequestManagerConfig.ALTERNATIVE_SEARCH_NONE')
                     optionsDict['slack'] = 20
                     optionsDict['slack_steps'] = 2
 
                 # timeElapsed = time.time()-timeStarted
                 # print('time elapsed before solver')
                 # print(timeElapsed)
-                raw_solution = self.Solver.solve(
-                    graph, self.OSRM_url, request, promises, mandatory_stations, busses, optionsDict,
-                    apriori_times_matrix)
+                LOGGER.debug(f'Running Solver.solve(..)')
+                raw_solution = self.Solver.solve(graph, self.OSRM_url, request, promises, mandatory_stations, busses, optionsDict, apriori_times_matrix)
                 # timeElapsed = time.time()-timeStarted
                 # print('time elapsed after solver')
                 # print(timeElapsed)
@@ -988,10 +1055,14 @@ class RequestManager:
                 solution = {'type': 'new', 'routes': []}
 
                 if raw_solution is not None:
+                    LOGGER.debug(f'raw_solution is not None')
+
                     if build_paths:
+                        LOGGER.debug(f'denormalize_dates')
+
                         denormed_solution = self.denormalize_dates(
                             t_ref, raw_solution)
-
+                        LOGGER.debug(f'denormed_solution')
                         for bus_idx, route in denormed_solution.items():
                             if len(route) <= 2:
                                 continue
@@ -1000,25 +1071,29 @@ class RequestManager:
 
                             if len(trip.nodes) >= 2:
                                 solution['routes'].append(trip)
+                                LOGGER.debug(f'solution[routes].append(trip)')
                             else:
-                                LOGGER.warning(
-                                    f'Trip has not enough nodes! Ignored in routes.')
+                                LOGGER.warning(f'Trip has not enough nodes! Ignored in routes.')
+                                
                     else:
+                        LOGGER.debug(f'solution[routes].append(True)')
                         solution['routes'].append(True)
 
                 if solution['routes']:
-                    result.append(
-                        (solution, reason, start_window_current, stop_window_current))
+                    LOGGER.debug(f'if solution[routes]')
+                    result.append((solution, reason, start_window_current, stop_window_current))
 
                     if windowIndex == 0:
+                        LOGGER.debug(f'windowIndex == 0')
                         original_time_found = True
 
                     if windowIndex == 0 and break_if_first_window_works:
+                        LOGGER.debug(f'windowIndex == 0 and break_if_first_window_works')
                         return result, time_slot_complete, original_time_found
                 else:
-                    result.append(
-                        (None, reason, start_window_current, stop_window_current))
-
+                    LOGGER.debug(f'result.append((None, reason, start_window_current, stop_window_current))')
+                    result.append((None, reason, start_window_current, stop_window_current))
+        LOGGER.debug(f'return new_request resutls')
         return result, time_slot_complete, original_time_found
 
     @staticmethod

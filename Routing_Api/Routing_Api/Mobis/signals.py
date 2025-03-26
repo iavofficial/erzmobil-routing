@@ -70,8 +70,8 @@ class RabbitMqSender():
             'destinationTimeMaximum': destinationTimeMaximum.isoformat()
         }
         self._send(message=message, routing_key='RouteChangedIntegrationEvent')
-    def RouteRejectedIntegrationEvent(self, orderId:int, cancellationReason:str):
-        message = {'orderId': orderId, 'cancellationReason': cancellationReason}
+    def RouteRejectedIntegrationEvent(self, orderId:int=0, reason:str = "No reason provided", start:str = "", destination:str= "", datetime:str= "", seats:int = 0, seats_wheelchair:int=0):
+        message = {'orderId': orderId, 'reason': reason, 'start': start, 'destination': destination, 'datetime': datetime, 'seats': seats, 'seats_wheelchair': seats_wheelchair}
         self._send(message=message, routing_key='RouteRejectedIntegrationEvent')
 
 class RabbitMqListener:

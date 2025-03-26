@@ -6,11 +6,11 @@ from celery.schedules import crontab
 BUSNOW_ENVIRONMENT = os.environ.get('BUSNOW_ENVIRONMENT', None)
 
 RAVEN_CONFIG = {
-    'dsn': os.environ.get('SENTRY_DSN'),
+    # 'dsn': os.environ.get('SENTRY_DSN'),
     'environment': BUSNOW_ENVIRONMENT,
     'auto_log_stacks': True
 }
-SENTRY_CLIENT = 'raven.contrib.django.raven_compat.DjangoClient'
+# SENTRY_CLIENT = 'raven.contrib.django.raven_compat.DjangoClient'
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -26,6 +26,7 @@ DEBUG = BUSNOW_ENVIRONMENT == 'DEBUGGING'
 
 # Who can access the server? ['localhost', '127.0.0.1'] for local debugging
 ALLOWED_HOSTS = list(os.environ.get('ALLOWED_HOSTS', '*'))
+#ALLOWED_HOSTS = list('*')
 
 # Application definition
 
@@ -217,7 +218,7 @@ LOGGING = {
     'disable_existing_loggers': False,
     'root': {
         'level': 'WARNING',
-        'handlers': ['sentry'],
+        # 'handlers': ['sentry'],
     },
     'filters': {
         'require_debug_false': {
@@ -242,18 +243,18 @@ LOGGING = {
         },
     },
     'handlers': {
-        'sentry': {
-            # To capture more than ERROR, change to WARNING, INFO, etc., maximum logging is DEBUG
-            'level': 'WARNING',
-            'class': 'raven.contrib.django.raven_compat.handlers.SentryHandler',
-        },
+        # 'sentry': {
+        #     # To capture more than ERROR, change to WARNING, INFO, etc., maximum logging is DEBUG
+        #     'level': 'WARNING',
+        #     'class': 'raven.contrib.django.raven_compat.handlers.SentryHandler',
+        # },
         'console': {
-            'level': 'INFO',
+            'level': 'DEBUG',
             'filters': ['require_debug_true'],
             'class': 'logging.StreamHandler',
         },
         'console_debug_false': {
-            'level': 'INFO',
+            'level': 'DEBUG',
             'filters': ['require_debug_false'],
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
@@ -268,55 +269,68 @@ LOGGING = {
             'filters': ['require_debug_false'],
             'class': 'django.utils.log.AdminEmailHandler'
         },
-        "file_django": {
+        "log_file_django": {
             "level": "WARNING",
             "class": "logging.FileHandler",
             "filename": "django.log"
+        },
+        "log_file_routing": {
+            "level": "DEBUG",
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": "routing.log",
+            'maxBytes': 10 * 1024 * 1024,  # 10 MB per logfile
+            'backupCount': 20,  # 10 Backup-files
+            'formatter': 'verbose',
         }
     },
     'loggers': {
+        'routing.Maps': {
+            'handlers': ['console', 'console_debug_false', 'log_file_routing'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
         'routing.routing': {
-            'handlers': ['console', 'console_debug_false'],
+            'handlers': ['console', 'console_debug_false', 'log_file_routing'],
             'level': 'DEBUG',
             'propagate': True,
         },
         'routing.rutils': {
-            'handlers': ['console', 'console_debug_false'],
+            'handlers': ['console', 'console_debug_false', 'log_file_routing'],
             'level': 'DEBUG',
             'propagate': True,
         },
         'Mobis.tasks': {
-            'handlers': ['console', 'console_debug_false'],
+            'handlers': ['console', 'console_debug_false', 'log_file_routing'],
             'level': 'INFO',
             'propagate': True,
         },
         'Mobis.apifunctions': {
-            'handlers': ['console', 'console_debug_false'],
-            'level': 'INFO',
+            'handlers': ['console', 'console_debug_false', 'log_file_routing'],
+            'level': 'DEBUG',
             'propagate': True,
         },
         'Mobis.services': {
-            'handlers': ['console', 'console_debug_false'],
+            'handlers': ['console', 'console_debug_false', 'log_file_routing'],
             'level': 'DEBUG',
             'propagate': True,
         },
         'Mobis.EventBus': {
-            'handlers': ['console', 'console_debug_false'],
-            'level': 'INFO',
+            'handlers': ['console', 'console_debug_false', 'log_file_routing'],
+            'level': 'DEBUG',
             'propagate': True,
         },
         'mockups.db_busses': {
-            'handlers': ['console', 'console_debug_false'],
+            'handlers': ['console', 'console_debug_false', 'log_file_routing'],
             'level': 'INFO',
             'propagate': True,
         },
         'django': {
-            'handlers': ['console', 'console_debug_false', 'file_django'],
+            'handlers': ['console', 'console_debug_false', 'log_file_django'],
             'level': 'WARNING',
             'propagate': True,
         },
         'django.server': {
-            'handlers': ['django.server'],
+            'handlers': ['django.server', 'log_file_django'],
             'level': 'WARNING',
             'propagate': True,
         },
