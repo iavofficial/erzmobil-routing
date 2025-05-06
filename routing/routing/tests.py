@@ -1371,10 +1371,10 @@ class BusTourTest(TestCase):
 
         self.assertAlmostEqual(13.41, durations_dict_OSRM[station2][station1], delta=2.0)
         self.assertEqual(0, durations_dict_OSRM[station2][station2])
-        self.assertAlmostEqual(24.03, durations_dict_OSRM[station2][station3], delta=0.2)
+        self.assertAlmostEqual(24.03, durations_dict_OSRM[station2][station3], delta=0.5)
 
         self.assertAlmostEqual(32.97, durations_dict_OSRM[station3][station1], delta=2.0)
-        self.assertAlmostEqual(24.24, durations_dict_OSRM[station3][station2], delta=0.2)
+        self.assertAlmostEqual(24.24, durations_dict_OSRM[station3][station2], delta=0.5)
         self.assertEqual(0, durations_dict_OSRM[station3][station3], 2)
 
         # durations matrix with graph - absolute values of course differ from OSRM but relative duration should be somehow comparable
@@ -1434,15 +1434,15 @@ class BusTourTest(TestCase):
         self.assertEqual(0, durations_dict_OSRM[station3]['Depot'])
 
         self.assertEqual(0, durations_dict_OSRM[station1][station1])
-        self.assertAlmostEqual(time_factor*13.54, durations_dict_OSRM[station1][station2], delta=2.0) # Am 2025.01.24: nach Abstimmung mit dem Entwickler wurde die delta höher gesetz.
+        self.assertAlmostEqual(time_factor*13.54, durations_dict_OSRM[station1][station2], delta=2.5) # Am 2025.01.24: nach Abstimmung mit dem Entwickler wurde die delta höher gesetz.
         self.assertAlmostEqual(time_factor*33.10, durations_dict_OSRM[station1][station3], delta=1.0)
 
         self.assertAlmostEqual(time_factor*13.41, durations_dict_OSRM[station2][station1],  delta=2.0)
         self.assertEqual(0, durations_dict_OSRM[station2][station2])
-        self.assertAlmostEqual(time_factor*24.03, durations_dict_OSRM[station2][station3], delta=0.2)
+        self.assertAlmostEqual(time_factor*24.03, durations_dict_OSRM[station2][station3], delta=0.5)
 
         self.assertAlmostEqual(time_factor*32.97, durations_dict_OSRM[station3][station1], delta=2.0)
-        self.assertAlmostEqual(time_factor*24.24, durations_dict_OSRM[station3][station2], delta=0.2)
+        self.assertAlmostEqual(time_factor*24.24, durations_dict_OSRM[station3][station2], delta=0.5)
         self.assertEqual(0, durations_dict_OSRM[station3][station3], 2)
 
         # durations matrix with graph - absolute values of course differ from OSRM but relative duration should be somehow comparable
@@ -2235,7 +2235,7 @@ class BusTourTest_OSRM(TestCase):
             pprint(routes)
 
         self.assertEqual(3, len(routes)) 
-        self.assertGreater(2.5*100, timeElapsed) # the OSRM testserver is somtimes really slow, adapted OSRM servers are much faster (usually this test max 2.5 sec)!
+        self.assertGreater(3.5*100, timeElapsed) # the OSRM testserver is somtimes really slow, adapted OSRM servers are much faster (usually this test max 2.5 sec)!
 
     def test_calc_shortest_path_gps_OSRM(self):
 

@@ -65,3 +65,15 @@ class NoRouteExceptionInternalError(Exception):
     def __init__(self, message="The optimizer cannot find a solution due to internal error."):
         self.message = message
         super().__init__(self.message)
+
+class OrderNotCommittedToRoutes(Exception):
+    '''Raise on orders that cannot be committed to routes'''
+    def __init__(self, message="Failed to commit new order."):
+        self.message = message
+        super().__init__(self.message)
+
+class SolutionFormattingError(Exception):
+    '''Raise on orders that evolve an imporper solution format'''
+    def __init__(self, message="Unexpected solution formatting."):
+        self.message = message
+        super().__init__(self.message)

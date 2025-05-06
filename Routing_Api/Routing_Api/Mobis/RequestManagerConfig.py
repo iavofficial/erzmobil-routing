@@ -14,5 +14,6 @@ class RequestManagerConfig:
         self.timeOffset_FactorForDrivingTimes = 1.25
         self.timeOffset_LookAroundHoursPromises = 1
         self.timeOffset_LookAroundHoursBusAvailabilites = 10 # do not use same look_around for promises und availabilities, otherwise for long routes we we might not get solutions
+        self.timeOffset_MaxMinutesFromNowToReduceAvailabilitesByStartedRoutes = 30
 
         self.timeService_per_wheelchair = 3

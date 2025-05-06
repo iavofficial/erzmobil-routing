@@ -7,7 +7,7 @@ class SolverDummy():
 
         from routing.routing import new_routing, Moby
         promise_mobies: dict[int, Moby] = {}
-        for order_id, promise in promises.items():
+        for order_id, promise in promises.items():  
             start_location, start_window = promise['start']
             start_lat, start_lon = promise['start_lat_lon']
             stop_location, stop_window = promise['stop']

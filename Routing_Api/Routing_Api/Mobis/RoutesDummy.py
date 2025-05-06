@@ -2,6 +2,10 @@ from typing import List
 from dateutil.relativedelta import relativedelta
 from routing.routingClasses import MobyLoad
 import logging
+from dateutil.tz import tzutc
+from datetime import datetime
+
+UTC = tzutc()
 
 LOGGER = logging.getLogger('Mobis.services')
 
@@ -56,33 +60,98 @@ class RoutesDummy():
             routes.append(route)
             #TODO: compare locations
         return routes
-    def commit(self, solution, Orders):
+    
+    def commit(self, solution, Orders) -> bool:
         """ Take a list of routing.Trip elements and our Order abstraction and create/assign order->route relationships. """
+        """ Note that solution is a list of routes calcultated by the optimizer. Each route is defined for one bus and has a set of orders. Those orders may by changed """
+        """ (e.g. they were assigned to another route,...) and thus each route and orders must be updated, what we here call "commit". """
+
+        isCommittable = True # isCommittable defines wether the new orders in solution are committable, i.e. the order is designated to the correct route and changes in the route are acceptable for driver
 
         for route in solution:
             # get all order_ids that are included in this route
             orders = route.clients
-            # remenber their previous assignment, because we'll change that attribute
+            # remember their previous assignment, because we'll change that attribute
             old_routes = {order_id: self.contains_order(order_id) for order_id in orders}
 
-            # subtract order from old assignment
-            for order_id in orders:
-                # but only if there actually is one
-                if old_routes[order_id] is not None:
-                    self.remove_from_route(old_routes[order_id].id, order_id)
+            # check if route is committable and how orders will be moved within routes
+            dictStatusValsNotBooked: dict = {}
+            dictRouteIdBusId: dict = {}
 
-            # create and save routes that actually serve someone
-            if len(orders) > 0:
-                db_entry = self.create_route(bus_id=route.bus_id, status='BKD', nodes=route.nodes)
-
-            # communicate new assignments with our event bus
+            # extract routes that are NOT in status BOOKED (i.e. STARTED, FROZEN) and the corresponding bus ids
             for order_id in orders:
                 if old_routes[order_id] is not None:
-                    order = self._orders.objects.get(uid=order_id)
-                    hopOn = order.hopOnNode
-                    hopOff = order.hopOffNode
-                    Orders.route_changed(order_id=order_id, new_route_id=db_entry.id, old_route_id=old_routes[order_id].id,
-                        start_time_min=hopOn.tMin, start_time_max=hopOn.tMax, stop_time_min=hopOff.tMin, stop_time_max=hopOff.tMax, bus_id = route.bus_id)
+                    routeTmp = old_routes[order_id]
+
+                    # print("old route: " + str(routeTmp))
+                    # print("old route id: " + str(routeTmp.id))
+                    # print("old route status: " + str(routeTmp.status))
+                    # print("old route bus id: " + str(routeTmp.bus.uid))
+
+                    if routeTmp.status != self._routes.BOOKED:
+                        dictStatusValsNotBooked.setdefault(routeTmp.status, set()).update({routeTmp.id})
+                    dictRouteIdBusId[routeTmp.id] = routeTmp.bus.uid
+
+            remainingRouteId = -1  # if a route is started or frozen, this route must be used and updated, otherwise a new route is created          
+
+            # decide whether the changes in routes are realizable by the busses, in particular: decide if it is NOT allowed
+            if len(dictStatusValsNotBooked.keys()) > 1:
+                # more than one status values of old routes that are not booked
+                # currently not implemented , because we don't know how to handle this case in practise, wait for driver experience
+                isCommittable = False
+            elif len(dictStatusValsNotBooked.keys()) == 1 and len(next(iter(dictStatusValsNotBooked.values()))) > 1:
+                # only one not booked status but for multiple old routes
+                # currently not implemented , because we don't know how to handle this case in practise, wait for driver experience
+                isCommittable = False
+            elif len(dictStatusValsNotBooked.keys()) == 1:
+                if list(dictStatusValsNotBooked.keys())[0] == self._routes.STARTED or list(dictStatusValsNotBooked.keys())[0] == self._routes.FROZEN:
+                    # we have exactly one old route that is started or frozen   
+                    # instead of creating a new route, we can just move the orders to this route if the route id is valid
+                    # additionally the bus for this route must not change
+                    remainingRouteId = list(next(iter(dictStatusValsNotBooked.values())))[0]
+                    isCommittable = remainingRouteId > 0 and route.bus_id == dictRouteIdBusId[remainingRouteId]                   
+
+                else:   
+                    # another route status than started or frozen 
+                    # currently not implemented , because we don't know how to handle this case in practise, wait for driver experience
+                    isCommittable = False     
+            
+            # print("isCommittable: " + str(isCommittable))
+            # print(str(dictStatusValsNotBooked))
+            # print("commit - route: " + str(route))                   
+
+            if isCommittable == True:
+                # subtract order from old assignment
+                for order_id in orders:
+                    # but only if there actually is one
+                    # and if the route is not the remaining route
+                    if old_routes[order_id] is not None and (old_routes[order_id].id != remainingRouteId):    
+                        self.remove_from_route(old_routes[order_id].id, order_id, True)
+
+                # create and save routes that actually serve someone, but only if there is not a remainung route
+                # a new one can only be of status BOOKED, a remaing should conserve its status
+                if len(orders) > 0:                    
+                    db_entry = self.create_or_update_route(bus_id=route.bus_id, status_default=self._routes.BOOKED, nodes=route.nodes, route_id=remainingRouteId)
+                                        
+                    # if remainingRouteId >0:
+                    #     print("commit - remainingRouteId: " + str(remainingRouteId))                        
+                    #     print("commit - routeRemaining.nodes: " + str(db_entry.nodes))
+                    #     print("commit - route.nodes: " + str(route.nodes))    
+
+                    remainingRouteId = db_entry.id                    
+
+                # communicate new assignments with our event bus
+                for order_id in orders:
+                    if old_routes[order_id] is not None and old_routes[order_id].id != remainingRouteId:
+                        order = self._orders.objects.get(uid=order_id)
+                        hopOn = order.hopOnNode
+                        hopOff = order.hopOffNode
+                        Orders.route_changed(order_id=order_id, new_route_id=remainingRouteId, old_route_id=old_routes[order_id].id,
+                            start_time_min=hopOn.tMin, start_time_max=hopOn.tMax, stop_time_min=hopOff.tMin, stop_time_max=hopOff.tMax, bus_id = route.bus_id)
+            else:
+                return False
+                    
+        return isCommittable
 
     def commit_order(self, order_id, load, loadWheelchair, group_id):
         """
@@ -95,7 +164,7 @@ class RoutesDummy():
         order.save()
         return order
 
-    def remove_from_route(self, route_id, order_id):
+    def remove_from_route(self, route_id, order_id, deleteRouteIfEmpty=False):
         route = self._routes.objects.filter(pk=route_id).first()
         order = self._orders.objects.filter(uid=order_id).first()
         if not route:
@@ -112,7 +181,7 @@ class RoutesDummy():
                 changed = True
             if changed:
                 node.save()
-        if (len(route.clients()) == 0) and not route.blocking:
+        if (len(route.clients()) == 0) and deleteRouteIfEmpty==True and not route.blocking:
             route.delete()
 
     def hop_on(self, solution, restrictions, order_id, Orders) -> bool:
@@ -234,7 +303,7 @@ class RoutesDummy():
         shift_end = time + relativedelta(hours=self._look_around)
 
         orders = self._orders.objects.prefetch_related('hopOnNode', 'hopOnNode__route', 'hopOnNode__route__bus', 'hopOffNode', 'hopOffNode__route').filter(
-            hopOnNode__route__status=self._routes.BOOKED)
+            hopOnNode__route__status__in=[self._routes.BOOKED, self._routes.FROZEN, self._routes.STARTED])
         orders = orders.filter(hopOnNode__route__bus__uid__in=bus_ids)
         orders_within_time = orders.filter(hopOnNode__tMin__gte=shift_start, hopOnNode__tMax__lte=shift_end)
 
@@ -254,35 +323,67 @@ class RoutesDummy():
         orders = orders.filter(hopOnNode__route__id__in=route_ids)
         #print(orders.count())
 
+        timeNow = datetime.now(UTC)
+
         for order in orders.all():
-            promises[order.uid]['start'] = (order.hopOnNode.mapId, (order.hopOnNode.tMin, order.hopOnNode.tMax))
-            promises[order.uid]['start_lat_lon'] = (order.hopOnNode.latitude, order.hopOnNode.longitude)
-            promises[order.uid]['stop'] = (order.hopOffNode.mapId, (order.hopOffNode.tMin, order.hopOffNode.tMax))
-            promises[order.uid]['stop_lat_lon'] = (order.hopOffNode.latitude, order.hopOffNode.longitude)
-            promises[order.uid]['load'] = order.load
-            promises[order.uid]['loadWheelchair'] = order.loadWheelchair
+            if order.hopOffNode.tMax > timeNow: # do not add promises that are already finished
+                promises[order.uid]['start'] = (order.hopOnNode.mapId, (order.hopOnNode.tMin, order.hopOnNode.tMax))
+                promises[order.uid]['start_lat_lon'] = (order.hopOnNode.latitude, order.hopOnNode.longitude)
+                promises[order.uid]['stop'] = (order.hopOffNode.mapId, (order.hopOffNode.tMin, order.hopOffNode.tMax))
+                promises[order.uid]['stop_lat_lon'] = (order.hopOffNode.latitude, order.hopOffNode.longitude)
+                promises[order.uid]['load'] = order.load
+                promises[order.uid]['loadWheelchair'] = order.loadWheelchair
+                promises[order.uid]['route_status'] = order.hopOnNode.route.status
+                promises[order.uid]['bus_uid'] = order.hopOnNode.route.bus.uid
+                # print (f"Promise start: {promises[order.uid]['start']}")
+                # print (f"Promise stop: {promises[order.uid]['stop']}")
+                # print (f"Promise route status: {promises[order.uid]['route_status']}")
+                # print (f"Promise route bus_uid: {promises[order.uid]['bus_uid']}")
 
         return promises
 
-    def create_route(self, bus_id, status, nodes):
+    def create_or_update_route(self, bus_id, status_default, nodes, route_id = -1):
         """ Create a 'proper' route object from a list of nodes """
 
-        route = self._routes.with_busId(busId=bus_id, status=status)
-        route.save()
+        if route_id < 0:
+            route = self._routes.create_route_with_busId(busId=bus_id, status=status_default)
+            route.save()
+        else:
+            route = self._routes.objects.filter(pk=route_id).first()
+
         for n in nodes:
-            node = self._nodes(mapId=n.map_id,tMin=n.time_min,tMax=n.time_max,
-                               route=route, latitude=n.lat, longitude=n.lon)
-            node.save()
-            if n.hop_on:
-                hop_on, created = self._orders.objects.get_or_create(uid=n.hop_on)
-                hop_on.hopOnNode = node
-                hop_on.save()
-            if n.hop_off:
-                hop_off, created = self._orders.objects.get_or_create(uid=n.hop_off)
-                hop_off.hopOffNode = node
-                hop_off.save()
+            addHopOn = True
+            addHopOff = True
+
+            if route_id > 0 and n.hop_on:
+                order = self._orders.objects.filter(uid=n.hop_on).first() 
+                if order is not None and order.hopOnNode is not None and order.hopOnNode.route.id == route_id:
+                    # the order is already part of the route, skip the node
+                    #print("node skipped in create_or_update_route:" + str(n))
+                    addHopOn = False
+            
+            if route_id > 0 and n.hop_off:
+                order = self._orders.objects.filter(uid=n.hop_off).first() 
+                if order is not None and order.hopOffNode is not None and order.hopOffNode.route.id == route_id:
+                    # the order is already part of the route, skip the node
+                    #print("node skipped in create_or_update_route:" + str(n))
+                    addHopOff = False
+
+            if addHopOn or addHopOff:
+                node = self._nodes(mapId=n.map_id,tMin=n.time_min,tMax=n.time_max,
+                                route=route, latitude=n.lat, longitude=n.lon)
+                node.save()
+                if n.hop_on and addHopOn:
+                    hop_on, created = self._orders.objects.get_or_create(uid=n.hop_on)
+                    hop_on.hopOnNode = node
+                    hop_on.save()
+                if n.hop_off and addHopOff:
+                    hop_off, created = self._orders.objects.get_or_create(uid=n.hop_off)
+                    hop_off.hopOffNode = node
+                    hop_off.save()
 
         return route
+    
     def contains_order(self, order_id):
         """
         Retrieve a `Route` object that contains a specific `order_id`,
