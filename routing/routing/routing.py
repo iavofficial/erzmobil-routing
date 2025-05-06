@@ -141,7 +141,7 @@ class CreateDemandEvaluator(object):
 
         if from_node < len(self._demands):
             retTmp = self._demands[from_node].standardSeats
-            logger.debug(f'demand_evaluator_seats for seats = {retTmp}')
+            # logger.debug(f'demand_evaluator_seats for seats = {retTmp}')
             return retTmp            
         return 0
 
@@ -150,7 +150,7 @@ class CreateDemandEvaluator(object):
 
         if from_node < len(self._demands):
             retTmp = self._demands[from_node].wheelchairs
-            logger.debug(f'demand_evaluator_wheelchairs for wheelchairs = {retTmp}')
+            # logger.debug(f'demand_evaluator_wheelchairs for wheelchairs = {retTmp}')
             return retTmp
         return 0
 

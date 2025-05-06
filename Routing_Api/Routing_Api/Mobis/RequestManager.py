@@ -20,8 +20,9 @@ from routing.errors import DuplicatedOrder, CommunityConflict, SameStop, NoStop,
     InvalidTime, InvalidTime2, MalformedMessage
 from routing.routingClasses import MobyLoad, Station
 from routing.rutils import add_detours_from_gps, multi2single, GpsUtmConverter
-
+from routing.errors import OrderNotCommittedToRoutes, SolutionFormattingError
 import logging
+import traceback
 
 LOGGER = logging.getLogger('Mobis.services')
 UTC = tzutc()
@@ -187,6 +188,9 @@ class RequestManager:
     NO_BUSES_DUE_TO_BLOCKER = 9
     NO_BUSES_ALTERNATIVE_FOUND = 10
     NO_BUSES_NO_ALTERNATIVE_FOUND = 11
+    EMPTY_ORDER = 12
+    INVALID_REQUEST_PARAMETER = 13
+    INTERNAL_EXCEPTION = 14
 
     def __init__(self, Routes, Busses, Stations, Maps, OSRM_activated, OSRM_url, Solver, Orders, RoadClosures):
         self.Routes = Routes
@@ -242,9 +246,9 @@ class RequestManager:
         # retrieve the bus with the matching id from the db
         bus = self.Busses._busses.objects.get(uid=message.Id)
         for route in self.Routes._routes.objects.filter(bus=bus):
-            for order in route.clients():  # route.clients() returns a set of order ids
-                self.cancel_order(order_id=order)
-                self.Orders.route_rejected(order_id=order, reason='The bus for which this route was planned got deleted.')
+            for orderID in route.clients():  # route.clients() returns a set of order ids
+                self.cancel_order(order_id=orderID)
+                self.Orders.route_rejected(order_id=orderID, reason=f"The bus for which this route was planned (order id = {orderID}) got deleted from BusDeletedIntegrationCallback.")
             route.delete()
         self.Busses._busses.objects.filter(uid=message.Id).delete()
 
@@ -262,10 +266,10 @@ class RequestManager:
             if not bus.capa_sufficient_for_load(route.needed_capacity):
                 # delete orders, start with newest
                 # route.clients() returns a set of order ids
-                for order in reversed(sorted(route.clients())):
-                    self.cancel_order(order_id=order)
-                    self.Orders.route_rejected(order_id=order, reason='The bus for which this route was planned got deleted.')
-
+                for orderID in reversed(sorted(route.clients())):
+                    self.cancel_order(order_id=orderID)
+                    self.Orders.route_rejected(order_id=orderID, reason=f"The bus for which this route was planned (order id = {orderID}) got deleted from BusUpdatedIntegrationCallback.")
+                    
                     # stop deleting orders if capa is sufficient
                     if bus.capa_sufficient_for_load(route.needed_capacity):
                         break
@@ -335,12 +339,16 @@ class RequestManager:
                     if node.route.status == Route.BOOKED or node.route.status == Route.DRAFT:  # DO NOT CHANGE FINISHED ROUTES!
                         for order in node.hopOns.all() | node.hopOffs.all():
                             rejectedOrders.append(order.uid)
-                            self.Orders.route_rejected(order_id=order.uid,reason=f"Start or destination of order (id = {order.uid}) has changed! Old stop: {station.name} ({station.latitude}, {station.longitude}), New stop: {message.Name} ({message.Latitude}, {message.Longitude})", seats=order.load, seats_wheelchair=order.loadWheelchair)
+                            self.Orders.route_rejected(order_id=order.uid, reason=f"Start or destination of order (id = {order.uid}) has changed! Old stop: {station.name} ({station.latitude}, {station.longitude}), New stop: {message.Name} ({message.Latitude}, {message.Longitude})", seats=order.load, seats_wheelchair=order.loadWheelchair)
+                            
                             order.delete()
                         node.delete()
 
         except ObjectDoesNotExist as err:
             LOGGER.error(f'StopUpdatedCore: station to update not found: {err}')
+            pass
+        except Exception as err:
+            LOGGER.error(f'Exception in StopUpdatedCore: {err}')
             pass
 
         self.Stations.update(
@@ -367,8 +375,9 @@ class RequestManager:
                 .filter(route__community=station.community).distinct()
             for node in nodes:
                 if node.equalsStation(station):
-                    for order in node.hopOns.all() | node.hopOffs.all():
+                    for order in node.hopOns.all() | node.hopOffs.all():                        
                         self.Orders.route_rejected(order_id=order.uid, reason=f"Start or destination of order (id = {order.uid}) has been deleted! Deleted stop: {station.name} ({station.latitude}, {station.longitude})", seats=order.load, seats_wheelchair=order.loadWheelchair)
+                        
                         order.delete()
                     node.delete()
 
@@ -376,6 +385,9 @@ class RequestManager:
 
         except ObjectDoesNotExist as err:
             LOGGER.error(f'ObjectDoesNotExist Exception in StopDeletedIntegrationCallback: {err}')
+            pass
+        except Exception as err:
+            LOGGER.error(f'Exception in StopDeletedIntegrationCallback: {err}')
             pass
 
     @rabbit_callback(fields=['BusId', 'Latitude', 'Longitude'])
@@ -393,7 +405,10 @@ class RequestManager:
         try:
             self.cancel_order(order_id=message.Id)
         except ObjectDoesNotExist as err:
-            LOGGER.error(f'StopUpdatedCore: station to update not found: {err}')
+            LOGGER.error(f'OrderCancelledCallback: order {message.Id} not found, cannot be cancelled, error message: {err}')
+            pass
+        except Exception as err:
+            LOGGER.error(f'Exception in OrderCancelledCallback: {err}')
             pass
 
     @rabbit_callback(fields=['Id', 'StartLatitude', 'StartLongitude', 'EndLatitude', 'EndLongitude', 'IsDeparture', 'Time', 'Seats','SeatsWheelchair'])
@@ -402,6 +417,10 @@ class RequestManager:
     def OrderStartedCallback(self, message):
         """ Called when a new order is received from RabbitMQ. Creates a new order in the system with the requested parameters. """
         LOGGER.info(f'OrderStartedCallback {message.Id}')
+        
+        if (not self.validate_locations(message)):
+            raise ValueError('Location-Coordinates are not valid')
+                
         startLocation = message.StartLatitude, message.StartLongitude
         stopLocation = message.EndLatitude, message.EndLongitude
 
@@ -419,39 +438,92 @@ class RequestManager:
             startWindow = None
             stopWindow = (time - relativedelta(minutes=10), time)
 
+        # due to decorator transaction.atomic, the exceptions below will rollback the transaction
+        errorCaught = False
+        errorMess = ''
+
         try:
+            [starts, stops] = self.Stations.get_stops_by_geo_locations([startLocation, stopLocation]) 
+            startNameInfo = starts[0].name if  starts != None and len(starts) > 0 else startLocation
+            stopNameInfo = stops[0].name if stops != None and len(stops) > 0 else stopLocation
             self.order(start_location=startLocation, stop_location=stopLocation, start_window=startWindow, stop_window=stopWindow, load=message.Seats, loadWheelchair=message.SeatsWheelchair, order_id=message.Id)
+         
         except DuplicatedOrder as err:
             LOGGER.error('DuplicatedOrder, Order_id already exists: %s', err, extra={'body': message}, exc_info=True)
+            errorCaught = True
+            errorMess = err.message
         except CommunityConflict as err:
             LOGGER.error(f'CommunityConflict exception: {err}')
-            self.Orders.route_rejected(order_id=message.Id, reason=err.message, start=str(startLocation), destination=str(stopLocation), datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
+            errorCaught = True
+            errorMess = err.message
         except SameStop as err:
             LOGGER.error(f'SameStop exception: {err}')
-            self.Orders.route_rejected(order_id=message.Id, reason=err.message, start=str(startLocation), destination=str(stopLocation), datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
+            errorCaught = True
+            errorMess = err.message
         except NoStop as err:
             LOGGER.error(f'NoStop exception: {err}')
-            self.Orders.route_rejected(order_id=message.Id, reason=err.message, start=str(startLocation), destination=str(stopLocation), datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
+            errorCaught = True
+            errorMess = err.message
         except NoBuses as err:
             LOGGER.error(f'NoBuses exception: {err}')
-            self.Orders.route_rejected(order_id=message.Id, reason=err.message, start=str(startLocation), destination=str(stopLocation), datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
+            errorCaught = True
+            errorMess = err.message
         except NoBusesDueToBlocker as err:
             LOGGER.error(f'NoBusesDueToBlocker exception: {err}')
-            self.Orders.route_rejected(order_id=message.Id, reason=err.message, start=str(startLocation), destination=str(stopLocation), datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
+            errorCaught = True
+            errorMess = err.message
         except BusesTooSmall as err:
             LOGGER.error(f'BusesTooSmall exception: {err}')
-            LOGGER.error(f'stop: {stopLocation}')
-            self.Orders.route_rejected(order_id=message.Id, reason=err.message, start=str(startLocation), destination=str(stopLocation), datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
+            errorCaught = True
+            errorMess = err.message
         except InvalidTime as err:
             LOGGER.error(f'InvalidTime exception: {err}')
-            self.Orders.route_rejected(order_id=message.Id, reason=err.message, start=str(startLocation), destination=str(stopLocation), datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
+            errorCaught = True
+            errorMess = err.message
         except InvalidTime2 as err:
             LOGGER.error(f'InvalidTime2 exception: {err}')
-            self.Orders.route_rejected(order_id=message.Id, reason=err.message, start=str(startLocation), destination=str(stopLocation), datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
+            errorCaught = True
+            errorMess = err.message
+        except SolutionFormattingError as err:
+            LOGGER.error(f'SolutionFormattingError exception: {err}')
+            errorCaught = True
+            errorMess = err.message
+        except OrderNotCommittedToRoutes as err:
+            LOGGER.error(f'OrderNotCommittedToRoutes exception: {err}')
+            errorCaught = True
+            errorMess = err.message
         except Exception as err:
-            self.Orders.route_rejected(order_id=message.Id, reason=f'Order could not be processed: {err}', start=str(startLocation), destination=str(stopLocation), datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
+            errorCaught = True
+            errorMess = f'Order could not be processed due to an internal error: {err}'
             LOGGER.error('Order could not be processed: %s', err, extra={'body': message}, exc_info=True)
+
+        if errorCaught:
+            self.Orders.route_rejected(order_id=message.Id, reason=errorMess, start=startNameInfo, destination=stopNameInfo, datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
+
+    
+    def commit_new_order(self, newRoutes, new_order_id, new_load, new_loadWheelchair, new_group_id) -> bool:
+        """
+        Commit a new order by updating routes and orders.
         
+        Args:
+        - newRoutes: The updated routes from the solver
+        - new_order_id: The ID of the new order
+        - new_load: The load for the new order
+        - new_loadWheelchair: The wheelchair load for the new order
+        - new_group_id: The ID of the group for the new order
+        Returns:
+        - bool: True if the commit is successful
+        """
+        try:            
+            self.Routes.commit_order(order_id=new_order_id, load=new_load, loadWheelchair=new_loadWheelchair, group_id=new_group_id)
+            result = self.Routes.commit(newRoutes, self.Orders)
+
+            return result        
+        except Exception as e:
+            print(traceback.format_exc())
+            LOGGER.error(f"Failed to commit new order: {e}")
+            return False
+
     def order(self, start_location, stop_location, start_window, stop_window, load=1, loadWheelchair=0, group_id=None, order_id=None):
         """
         Creates a new order and attempts to find a route for it.
@@ -465,12 +537,17 @@ class RequestManager:
 
         if solution is None:
             LOGGER.debug('found no valid solution for request')
-            self.Orders.route_rejected(order_id=order_id, reason=comment, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
+            [starts, stops] = self.Stations.get_stops_by_geo_locations([start_location, stop_location])
+            startNameInfo = starts[0].name if  starts != None and len(starts) > 0 else start_location
+            stopNameInfo = stops[0].name if stops != None and len(stops) > 0 else stop_location
+            self.Orders.route_rejected(order_id=order_id, reason=comment, start=startNameInfo, destination=stopNameInfo, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
             return None
 
         if solution['type'] == 'new':
-            self.Routes.commit_order(order_id=order_id, load=load, loadWheelchair=loadWheelchair, group_id=group_id)
-            self.Routes.commit(solution['routes'], self.Orders)
+            if self.commit_new_order(solution['routes'], order_id, load, loadWheelchair, group_id) == False:
+                # raise exception for proper rollback of transaction
+                raise OrderNotCommittedToRoutes('Solution for order found but cannot be committed properly into bus routes (forbidden changes of started routes)')
+            
             order_entry = self.Routes._orders.objects.get(uid=order_id)
             route = self.Routes.contains_order(order_id)
             hopOn = order_entry.hopOnNode
@@ -496,8 +573,7 @@ class RequestManager:
             self.Routes.hop_on(solution['routes'], solution['restrictions'], order_id, self.Orders)
             return order_id
 
-        self.Orders.route_rejected(order_id=order_id, reason='unexpected case: solution type is neither "new" nor "free"', start=start_location, stop=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
-        raise ValueError('solution type is neither new nor free')
+        raise SolutionFormattingError('unexpected solution case: solution type is neither "new" nor "free"')
 
     LOGGER = logging.getLogger(__name__)
 
@@ -548,10 +624,21 @@ class RequestManager:
 
         # Get the stops' names
         [starts, stops] = self.Stations.get_stops_by_geo_locations(
-            [start_location, stop_location])
+            [start_location, stop_location])        
+        
+        startNameInfo = starts[0].name if  starts != None and len(starts) > 0 else start_location
+        stopNameInfo = stops[0].name if stops != None and len(stops) > 0 else stop_location
+        rejectedEvent = False
+        rejectedMessage = ''
 
         try:
-            try:
+            # empty request can be cancelled
+            if load <=0 and loadWheelchair <=0:
+                rejectedMessage = f'Order empty, no seats or wheelchairs requested.'
+                LOGGER.error(rejectedMessage)
+                rejectedEvent = True
+                result = (False, self.EMPTY_ORDER, rejectedMessage, times_found, time_slot_min_max)
+            else:
                 results_all, time_slot_min_max, original_time_found = self.new_request(
                     start_location, stop_location, start_window, stop_window, MobyLoad(load, loadWheelchair), None,
                     group_id, alternatives_mode, False)
@@ -564,17 +651,13 @@ class RequestManager:
                             times_found.append(start_window)
                         else:
                             times_found.append(stop_window)
-                # print("solution")
-                # print(solution)
 
                 if count_solutions_found > 0:
                     # important: if original time was found we should respond the standard success code even if alternative search was enabled
                     if alternatives_mode == RequestManagerConfig.ALTERNATIVE_SEARCH_NONE or original_time_found:
-                        result = (True, self.POSSIBLE, 'Hurray',
-                                  times_found, time_slot_min_max)
+                        result = (True, self.POSSIBLE, 'Hurray', times_found, time_slot_min_max)
                     else:
-                        result = (True, self.NO_BUSES_ALTERNATIVE_FOUND,
-                                  'Hurray', times_found, time_slot_min_max)
+                        result = (True, self.NO_BUSES_ALTERNATIVE_FOUND, 'Hurray', times_found, time_slot_min_max)
                 else:
                     # The value of start_window may change, when alternatives_mode is activated.
                     # new_request() calls new_request_eval_time_windows(), which creates a list of time windows. If alternatives_mode is activated, results_all grows bigger
@@ -582,73 +665,81 @@ class RequestManager:
                     # results_all[0][2] contains start_window of the first result
                     # results_all[0][2][0] contains the first time of the start_window of the first result
                     # Therefore, results_all[0][2][0] always holds the very first start_window, regardless of how big results_all
+                    
+                    bookingInfos = f"Start: {startNameInfo} {start_location}, Destination: {stopNameInfo} {stop_location}, Seats: {load} standard, {loadWheelchair} wheelchair."
+                    
+                    if (results_all is not None and len(results_all) > 0):
+                        if (results_all[0] is not None and len(results_all[0]) > 2):
+                            if results_all[0][2] is not None and len(results_all[0][2]) > 0:
+                                bookingInfos = f"Start: {startNameInfo} {start_location}, Destination: {stopNameInfo} {stop_location}, Time: {results_all[0][2][0].strftime('%Y/%m/%d, %H:%M')} (UTC), Seats: {load} standard, {loadWheelchair} wheelchair."
 
                     if alternatives_mode == RequestManagerConfig.ALTERNATIVE_SEARCH_NONE:
-                        reason = f"No routing found for request - Start: {starts[0].name} {start_location}, Destination: {stops[0].name} {stop_location}, Time: {results_all[0][2][0].strftime('%Y/%m/%d, %H:%M')} (UTC), Seats: {load} standard, {loadWheelchair} wheelchair."
-                        result = (False, self.NO_ROUTING, reason,
-                                  times_found, time_slot_min_max)
-                        self.Orders.route_rejected(order_id=-1, reason=reason, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
+                        rejectedMessage = f"No routing found for request - " + bookingInfos
+                        rejectedEvent = True
+                        result = (False, self.NO_ROUTING, rejectedMessage, times_found, time_slot_min_max)                        
                     else:
-                        reason = f"No routing found for request (including alternatives search) - Start: {starts[0].name} {start_location}, Destination: {stops[0].name} {stop_location}, Time: {results_all[0][2][0].strftime('%Y/%m/%d, %H:%M')} (UTC), Seats: {load} standard, {loadWheelchair} wheelchair."
-                        result = (False, self.NO_BUSES_NO_ALTERNATIVE_FOUND,
-                                  reason, times_found, time_slot_min_max)
-                        self.Orders.route_rejected(order_id=-1, reason=reason, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
-            except SameStop as err:
-                msg = f'SameStop Exception: {err}'
-                LOGGER.error(msg)
-                self.Orders.route_rejected(order_id=-1, reason=msg, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
-                result = (False, self.SAME_STOPS, err.message,
-                          times_found, time_slot_min_max)
-            except NoStop as err:
-                msg = f'NoStop Exception: {err}'
-                LOGGER.error(msg)
-                self.Orders.route_rejected(order_id=-1, reason=msg, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
-                result = (False, self.NO_STOPS, err.message,
-                          times_found, time_slot_min_max)
-            except CommunityConflict as err:
-                msg = f'CommunityConflict Exception: {err}'
-                LOGGER.error(msg)
-                self.Orders.route_rejected(order_id=-1, reason=msg, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
-                result = (False, self.NO_COMMUNITY, err.message,
-                          times_found, time_slot_min_max)
-            except NoBuses as err:
-                msg = f'NoBuses Exception: {err}'
-                LOGGER.error(msg)
-                self.Orders.route_rejected(order_id=-1, reason=msg, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
-                result = (False, self.NO_BUSES, err.message,
-                          times_found, time_slot_min_max)
-            except NoBusesDueToBlocker as err:
-                msg = f'NoBusesDueToBlocker Exception: {err}'
-                LOGGER.error(msg)
-                self.Orders.route_rejected(order_id=-1, reason=msg, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
-                result = (False, self.NO_BUSES_DUE_TO_BLOCKER,
-                          err.message, times_found, time_slot_min_max)
-            except BusesTooSmall as err:
-                msg = f'BusesTooSmall Exception: {err}'
-                LOGGER.error(msg)
-                self.Orders.route_rejected(order_id=-1, reason=msg, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
-                result = (False, self.BUSES_TOO_SMALL, err.message,
-                          times_found, time_slot_min_max)
-            except InvalidTime as err:
-                msg = f'InvalidTime Exception: {err}'
-                LOGGER.error(msg)
-                self.Orders.route_rejected(order_id=-1, reason=msg, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
-                result = (False, self.WRONG_TIME_PAST, err.message,
-                          times_found, time_slot_min_max)
-            except InvalidTime2 as err:
-                msg = f'InvalidTime2 Exception: {err}'
-                LOGGER.error(msg)
-                self.Orders.route_rejected(order_id=-1, reason=msg, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
-                result = (False, self.WRONG_TIME_FUTURE, err.message,
-                          times_found, time_slot_min_max)
-            return result
-        
+                        rejectedMessage = f"No routing found for request (including alternatives search) - " + bookingInfos
+                        rejectedEvent = True
+                        result = (False, self.NO_BUSES_NO_ALTERNATIVE_FOUND, rejectedMessage, times_found, time_slot_min_max)
+        except SameStop as err:
+            msg = f'SameStop Exception: {err}'
+            LOGGER.error(msg)
+            rejectedMessage = msg
+            rejectedEvent = True
+            result = (False, self.SAME_STOPS, err.message, times_found, time_slot_min_max)
+        except NoStop as err:
+            msg = f'NoStop Exception: {err}'
+            LOGGER.error(msg)
+            rejectedMessage = msg
+            rejectedEvent = True
+            result = (False, self.NO_STOPS, err.message, times_found, time_slot_min_max)
+        except CommunityConflict as err:
+            msg = f'CommunityConflict Exception: {err}'
+            LOGGER.error(msg)
+            rejectedMessage = msg
+            rejectedEvent = True
+            result = (False, self.NO_COMMUNITY, err.message, times_found, time_slot_min_max)
+        except NoBuses as err:
+            msg = f'NoBuses Exception: {err}'
+            LOGGER.error(msg)
+            rejectedMessage = msg
+            rejectedEvent = True
+            result = (False, self.NO_BUSES, err.message, times_found, time_slot_min_max)
+        except NoBusesDueToBlocker as err:
+            msg = f'NoBusesDueToBlocker Exception: {err}'
+            LOGGER.error(msg)
+            rejectedMessage = msg
+            rejectedEvent = True
+            result = (False, self.NO_BUSES_DUE_TO_BLOCKER, err.message, times_found, time_slot_min_max)
+        except BusesTooSmall as err:
+            msg = f'BusesTooSmall Exception: {err}'
+            LOGGER.error(msg)
+            rejectedMessage = msg
+            rejectedEvent = True
+            result = (False, self.BUSES_TOO_SMALL, err.message, times_found, time_slot_min_max)
+        except InvalidTime as err:
+            msg = f'InvalidTime Exception: {err}'
+            LOGGER.error(msg)
+            rejectedMessage = msg
+            rejectedEvent = True
+            result = (False, self.WRONG_TIME_PAST, err.message, times_found, time_slot_min_max)
+        except InvalidTime2 as err:
+            msg = f'InvalidTime2 Exception: {err}'
+            LOGGER.error(msg)
+            rejectedMessage = msg
+            rejectedEvent = True
+            result = (False, self.WRONG_TIME_FUTURE, err.message, times_found, time_slot_min_max)
         except Exception as err:  # catch any other exceptions
             msg = f'uncaught exception : {err}'
             LOGGER.error(msg, exc_info=True)
-            self.Orders.route_rejected(order_id=-1, reason=msg, start=start_location, destination=stop_location, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
-            raise err
-
+            rejectedMessage = msg
+            rejectedEvent = True
+            result = (False, self.INTERNAL_EXCEPTION, err.message, times_found, time_slot_min_max)
+            
+        if rejectedEvent:
+            self.Orders.route_rejected(order_id=-1, reason=rejectedMessage, start=startNameInfo, destination=stopNameInfo, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)                
+        return result
+        
     def order2route(self, order_id):
         """ Return the `Route` object that contains the order with the matching `order_id`. """
         route = self.Routes.contains_order(order_id)
@@ -849,6 +940,12 @@ class RequestManager:
         LOGGER.info(f'station_start.node_id={station_start.node_id} , start.mapId={start.mapId}')
         LOGGER.info(f'station_stop.node_id={station_stop.node_id} , stop.mapId={stop.mapId}')
         
+        if not start.mapId:
+            raise NoStop(message=f"No bus stop was found for the given start location {start.name} (lat: {start_location[0]}, long: {start_location[1]})!")
+
+        if not stop.mapId:
+            raise NoStop(message=f"No bus stop was found for the given destination {stop.name} location (lat: {stop_location[0]}, long: {stop_location[1]})!")
+        
         # eval al available busses for all requested times at once - performance!
         start_times = []
         stop_times = []
@@ -876,8 +973,13 @@ class RequestManager:
             time_slot_complete.append(stop_window_orig[0])
             time_slot_complete.append(stop_window_orig[1])
 
+        timeMaxForRoutesInOperation = datetime.now(UTC) + timedelta(days=1000*365) # almost infinity
+
+        if self.Config.timeOffset_MaxMinutesFromNowToReduceAvailabilitesByStartedRoutes > -1:
+            timeMaxForRoutesInOperation = datetime.now(UTC) + timedelta(minutes=self.Config.timeOffset_MaxMinutesFromNowToReduceAvailabilitesByStartedRoutes)
+                                                                    
         (busses_for_times, time_in_blocker) = self.Busses.get_available_buses(
-            community=community, start_times=start_times, stop_times=stop_times)
+            community=community, start_times=start_times, stop_times=stop_times, timeMaxForRoutesInOperation=timeMaxForRoutesInOperation)
         LOGGER.debug(f'available busses calculated {busses_for_times}')
 
         # if the first solution works, we do not calc alternatives
@@ -1172,3 +1274,33 @@ class RequestManager:
                 denormed_solution[bus_id].append(node_new)
 
         return denormed_solution
+
+    def is_valid_latitude(self, latitude):
+        return -90 <= latitude <= 90
+
+    def is_valid_longitude(self, longitude):
+        return -180 <= longitude <= 180
+
+    def validate_locations(self, message):
+        start_latitude = message.StartLatitude
+        start_longitude = message.StartLongitude
+        end_latitude = message.EndLatitude
+        end_longitude = message.EndLongitude
+
+        if not self.is_valid_latitude(start_latitude):
+            LOGGER.debug(f"Ungültiger Start-Breitengrad: ", start_latitude)
+            return False
+
+        if not self.is_valid_longitude(start_longitude):
+            LOGGER.debug(f"Ungültiger Start-Längengrad: ", start_longitude)
+            return False
+
+        if not self.is_valid_latitude(end_latitude):
+            LOGGER.debug(f"Ungültiger End-Breitengrad: ", end_latitude)
+            return False
+
+        if not self.is_valid_longitude(end_longitude):
+            LOGGER.debug(f"Ungültiger End-Längengrad: ", end_longitude)
+            return False
+
+        return True

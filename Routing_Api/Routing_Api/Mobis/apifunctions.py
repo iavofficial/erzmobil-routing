@@ -106,8 +106,7 @@ def RouteCheck(startLocation, stopLocation, time, isDeparture, seatNumber=1, whe
             alternatives_mode_checked = RequestManagerConfig.ALTERNATIVE_SEARCH_LATER
 
     try:
-        result, code, message, time_windows, time_slot = Requests.is_bookable(
-            start_location=startLocation, stop_location=stopLocation, start_window=t_start,
+        result, code, message, time_windows, time_slot = Requests.is_bookable(start_location=startLocation, stop_location=stopLocation, start_window=t_start,
             stop_window=t_stop, load=seatNumber, loadWheelchair=wheelchairNumber, group_id=routeId, alternatives_mode=alternatives_mode_checked)
 
     except Exception as err:
@@ -160,12 +159,10 @@ def RouteRequest(startLocation, stopLocation, time, isDeparture, seatNumber=1, w
                                 stop_window=t_stop, load=seatNumber, loadwheelchair= wheelchairNumber, group_id=routeId, order_id=orderId)
     except DuplicatedOrder as err:
         message = f'DuplicatedOrder, Order_id={orderId} already exists: {err}'
-        Requests.Orders.route_rejected(order_id=orderId, reason=message, start=startLocation, destination=stopLocation, datetime=time, seats=seatNumber, seats_wheelchair=wheelchairNumber)
         LOGGER.error(message, exc_info=True)
         solution = False
     except Exception as err:
         message = f'an error occurred in RouteRequest: {err}'
-        Requests.Orders.route_rejected(order_id=orderId, reason=message, start=startLocation, destination=stopLocation, datetime=time, seats=seatNumber, seats_wheelchair=wheelchairNumber)
         LOGGER.error(message, exc_info=True)
         
     return Response(data=solution)

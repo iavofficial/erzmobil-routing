@@ -146,7 +146,7 @@ class Route(models.Model):
         return self.bus.uid
     
     @staticmethod
-    def with_busId(busId, *args, **kwargs):
+    def create_route_with_busId(busId, *args, **kwargs):
         bus = Bus.objects.get(uid=busId)
         return Route(bus=bus, community=bus.community, *args, **kwargs)
 

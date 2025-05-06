@@ -155,6 +155,7 @@ class Busses():
     def __routes_to_constraints(routes, buffertime_minutes):
         # create a list for each bus with first and last (location, time) information
         constraints = {route.busId: [] for route in routes}
+       
         for route in routes:
             busId = route.busId
             start_node = route.nodes.first()
@@ -166,36 +167,52 @@ class Busses():
                                        (stop_node.tMax + timedelta(minutes=buffertime_minutes), stop_node.mapId)))
         return constraints
 
-    @staticmethod
-    def __reduce_timeslot(timeslot, constraints):
+    def reduce_timeslot(self, timeslot, constraints, timeMaxToReduce: datetime = datetime.now(UTC) + timedelta(minutes=30)):
         """ Reduce a given timeslot by route time windows.
         :timeslot: {start: datetime, end:datetime, start_location:mapid, end_location:mapid}
         :constraints: [((start, start_location), (end, endlocation)), ...]
+        :timeMaxToReduce: datetime, after this time, the slot will not be reduced
 
         Return list of timeslots like timeslot
         """
 
         # the bus is currently useable during this slot, if we ignore frozen routes
-        # we only have on work slot in the beginning
+        # we only have one work slot in the beginning
         slots = [timeslot]
 
         # make a sorted copy, because we don't want to destroy the data source
         constraints = sorted(constraints)
 
+        # print('reduce_timeslot')
+        # print(str(timeslot))
+        # print(str(constraints))
+        # print(str(timeMaxToReduce))
+
+        # if len(constraints) == 0:
+        #     print("reduce_timeslot: no contraints given")
+
         for constraint in constraints:
             # deconstruct constraint
             ((constraint_start, constraint_start_location),
              (constraint_end, constraint_end_location)) = constraint
+            
+            # set maximum time to reduce to timeMaxToReduce
+            if constraint_end > timeMaxToReduce:
+                constraint_end = timeMaxToReduce
+                constraint_end_location = None
+
             # the currently relevant slot is always the last
             ((slot_start, slot_start_location),
              (slot_end, slot_end_location)) = slots[-1]
 
             # skip obvious, non-overlapping situations:
             if constraint_start > slot_end or constraint_end < slot_start:
+                #print("reduce_timeslot: constraint skipped")
                 pass
 
             # fully enveloped constraint -> we need to split our slot into two
             elif constraint_start > slot_start and constraint_end < slot_end:
+                #print("reduce_timeslot: constraint splits slot")
                 # first half:
                 slots[-1] = ((slot_start, slot_start_location),
                              (constraint_start, constraint_start_location))
@@ -206,12 +223,14 @@ class Busses():
             # left are only cases where an edge overlaps, like [...( .. ] ...)
             # constraint overlaps with first part of slot
             elif constraint_start <= slot_start:
+                #print("reduce_timeslot: constraint removes left part")
                 # so simply move the start of the slot up in time
                 slots[-1] = ((constraint_end, constraint_end_location),
                              (slot_end, slot_end_location))
 
             # constraint overlaps with later part of slot
             elif constraint_end >= slot_end:
+                #print("reduce_timeslot: constraint removes right part")
                 # so simply move the end of the slot back in time
                 slots[-1] = ((slot_start, slot_start_location),
                              (constraint_start, constraint_start_location))
@@ -227,9 +246,13 @@ class Busses():
             return start < end
 
         # return only slots that have time left to manoeuver
-        return list(filter(nonempty_slot, slots))
+        result = list(filter(nonempty_slot, slots))
 
-    def get_available_buses(self, community, start_times: List[datetime] = None, stop_times: List[datetime] = None):
+        #print(str(result))
+
+        return result
+
+    def get_available_buses(self, community, start_times: List[datetime] = None, stop_times: List[datetime] = None, timeMaxForRoutesInOperation: datetime = datetime.now(UTC) + timedelta(minutes=30) ):
         # print("get_available_buses")
         # print(f"DEBUGGING start_times in get_available_buses: {start_times}")
         # print(f"DEBUGGING stop_times in get_available_buses: {stop_times}")
@@ -267,14 +290,14 @@ class Busses():
         # print(f"DEBUGGING availabilities in get_available_buses: {availabilities}")
 
         # remove reserved times of frozen routes from time slot
-        routes = list(self._get_frozen_routes_for_busses(
+        listRoutesInOperation = list(self._get_frozen_routes_for_busses(
             bus_ids=[availability.bus_id for availability in availabilities],
             start_time=lower_time_range,
-            stop_time=upper_time_range))
+            stop_time=upper_time_range))       
 
         # create a list for each bus with first and last (location, time) information
         # buffer is used that there is little time remaining between frozen routes an new ones
-        constraints = self.__routes_to_constraints(routes, buffertime_minutes=15)
+        constraints = self.__routes_to_constraints(listRoutesInOperation, buffertime_minutes=15)
 
         result = []
         time_in_blocker = []
@@ -308,7 +331,10 @@ class Busses():
                     # print(end)
 
                     if time >= start and time <= end:
-                        timeslots.extend(self.__reduce_timeslot(timeslot, constraints.get(bus_id, [])))
+                        timeslots.extend(self.reduce_timeslot(timeslot, constraints.get(bus_id, []), timeMaxForRoutesInOperation))
+
+                        # print("timeslots reduced")
+                        # print(timeslots)
                     else:
                         print("time not in timeslot")
                         pass

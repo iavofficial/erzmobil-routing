@@ -213,6 +213,15 @@ RABBITMQ_VHOST = os.environ.get(
 CELERY_TIMEZONE = 'UTC'
 CELERY_BROKER_URL = f'amqp://{RABBITMQ_USER}:{RABBITMQ_PASS}@{RABBITMQ_HOST}/{RABBITMQ_VHOST}'
 
+timestamp = datetime.datetime.now().strftime("%Y%m%d_%H-%M-%S")
+log_filename_routing = f"../log-storage-routing/routing_{timestamp}.log"
+log_file_django = f"../log-storage-routing/django_{timestamp}.log"
+
+directory_path = os.path.dirname(log_filename_routing)
+if not os.path.exists(directory_path):
+    os.makedirs(directory_path)
+    print(f"The directory '{directory_path}' was created.")
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -272,14 +281,14 @@ LOGGING = {
         "log_file_django": {
             "level": "WARNING",
             "class": "logging.FileHandler",
-            "filename": "django.log"
+            "filename": log_file_django
         },
         "log_file_routing": {
             "level": "DEBUG",
             "class": "logging.handlers.RotatingFileHandler",
-            "filename": "routing.log",
+            "filename": log_filename_routing,
             'maxBytes': 10 * 1024 * 1024,  # 10 MB per logfile
-            'backupCount': 20,  # 10 Backup-files
+            'backupCount': 20,  # 20 Backup-files
             'formatter': 'verbose',
         }
     },

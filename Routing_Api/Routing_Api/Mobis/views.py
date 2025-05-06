@@ -29,39 +29,47 @@ def reset(request):
 @api_view(['GET'])
 def UnverbindlicheAnfrage(request):
     
-    # todo anstelle raise einen einheitlichen response zurueckgeben!
     got_startLatitude, startLatitude = API.not_float(request.GET.get('startLatitude', None))
     if not got_startLatitude:
-        raise ValidationError('startLatitude is missing.')
+        return Response(status=400, data={'result': False, 'reasonCode': API.GetRequestManager().INVALID_REQUEST_PARAMETER, 'reasonText': 'StartLatitude is missing.', 'alternativeTimes:': []})                
+    
     got_startLongitude, startLongitude = API.not_float(request.GET.get('startLongitude', None))
     if not got_startLongitude:
-        raise ValidationError('startLongitude is missing.')
+        return Response(status=400, data={'result': False, 'reasonCode': API.GetRequestManager().INVALID_REQUEST_PARAMETER, 'reasonText': 'StartLongitude is missing.', 'alternativeTimes:': []})                
+            
     got_stopLatitude, stopLatitude = API.not_float(request.GET.get('stopLatitude', None))
     if not got_stopLatitude:
-        raise ValidationError('stopLatitude is missing.')
+        return Response(status=400, data={'result': False, 'reasonCode': API.GetRequestManager().INVALID_REQUEST_PARAMETER, 'reasonText': 'StopLatitude is missing.', 'alternativeTimes:': []})                
+            
     got_stopLongitude, stopLongitude = API.not_float(request.GET.get('stopLongitude', None))
     if not got_stopLongitude:
-        raise ValidationError('stopLongitude is missing.')
+        return Response(status=400, data={'result': False, 'reasonCode': API.GetRequestManager().INVALID_REQUEST_PARAMETER, 'reasonText': 'StopLongitude is missing.', 'alternativeTimes:': []})                
+                
     got_time, time = API.not_time(request.GET.get('time', None))
     if not got_time:
-        raise ValidationError('time is missing.')
+        return Response(status=400, data={'result': False, 'reasonCode': API.GetRequestManager().INVALID_REQUEST_PARAMETER, 'reasonText': 'Time is missing.', 'alternativeTimes:': []})                
+    
     got_departure, isDeparture = API.not_boolean(request.GET.get('isDeparture', None))
-    if not got_departure:
-        raise ValidationError('isDeparture is missing.')
 
+    if not got_departure:
+        return Response(status=400, data={'result': False, 'reasonCode': API.GetRequestManager().INVALID_REQUEST_PARAMETER, 'reasonText': 'IsDeparture is missing.', 'alternativeTimes:': []})                
+    
     # seats and wheelchair seats are not depending on each other in order, both can be 0, but one must be at least 1
     got_seatNumber, seatNumber = API.not_pos_integer_or_null(request.GET.get('seatNumber', '0'), upper_bound=200)
     if not got_seatNumber or seatNumber is None:
-        raise ValidationError('seatNumber is invalid, must be defined as integer >= 0.')
+        return Response(status=400, data={'result': False, 'reasonCode': API.GetRequestManager().INVALID_REQUEST_PARAMETER, 'reasonText': 'SeatNumber is invalid, must be defined as integer >= 0.', 'alternativeTimes:': []})                
+    
     got_seatNumberWheelchair, seatNumberWheelchair = API.not_pos_integer_or_null(request.GET.get('seatNumberWheelchair', '0'), upper_bound=200)
+    
     if not got_seatNumberWheelchair or seatNumberWheelchair is None:
-        raise ValidationError('seatNumberWheelchair is invalid, must be defined as integer >= 0.')
+        return Response(status=400, data={'result': False, 'reasonCode': API.GetRequestManager().INVALID_REQUEST_PARAMETER, 'reasonText': 'SeatNumberWheelchair is invalid, must be defined as integer >= 0.', 'alternativeTimes:': []})        
+        
     if seatNumber+seatNumberWheelchair == 0:
-        raise ValidationError('seatNumber and seatNumberWheelchair is both 0, one value must be at least 1.')
-
+        return Response(status=400, data={'result': False, 'reasonCode': API.GetRequestManager().EMPTY_ORDER, 'reasonText': 'SeatNumber and seatNumberWheelchair is both 0, one value must be at least 1.', 'alternativeTimes:': []})
+        
     got_routeId, routeId = API.not_pos_integer(request.GET.get('routeId', None))
     if routeId is not None and not got_routeId:        
-        raise ValidationError('routeId is invalid.')
+        return Response(status=400, data={'result': False, 'reasonCode': API.GetRequestManager().INVALID_REQUEST_PARAMETER, 'reasonText': 'RouteId is invalid', 'alternativeTimes:': []})
 
     # should we look for alternative routing times?
     alternatives_mode=request.GET.get('suggestAlternatives', None)    
@@ -72,7 +80,7 @@ def UnverbindlicheAnfrage(request):
     except Exception as err:   
         print(traceback.format_exc())
         print(sys.exc_info()[2])
-        return Response(data={'result': 'unknown errors in API', 'reasonCode': '-1', 'reasonText': traceback.format_exc(), 'alternativeTimes:': []}) # print(sys.exc_info()[2])	
+        return Response(status=500, data={'result': 'unknown errors when calling API', 'reasonCode': '-1', 'reasonText': traceback.format_exc(), 'alternativeTimes:': []}) # print(sys.exc_info()[2])	
 		
 
 @api_view(['GET'])
