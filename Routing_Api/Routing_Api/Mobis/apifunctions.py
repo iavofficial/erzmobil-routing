@@ -1,3 +1,20 @@
+"""
+ Copyright © 2025 IAV GmbH Ingenieurgesellschaft Auto und Verkehr, All Rights Reserved.
+ 
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+ 
+ http://www.apache.org/licenses/LICENSE-2.0
+ 
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+ 
+ SPDX-License-Identifier: Apache-2.0
+"""
 """ API functions """
 import logging
 import os
@@ -84,14 +101,14 @@ def RouteCheck(startLocation, stopLocation, time, isDeparture, seatNumber=1, whe
     after = timedelta(minutes=10)
 
     # convert to utc is essential for correct calculations
-    time = datetime.fromtimestamp(time.timestamp(), tz=timezone.utc)
+    utc_time = datetime.fromtimestamp(time.timestamp(), tz=timezone.utc)
 
     if isDeparture:
         t_stop = None
-        t_start = (time, time+after)
+        t_start = (utc_time, utc_time+after)
     else:
         t_start = None
-        t_stop = (time-before, time)
+        t_stop = (utc_time-before, utc_time)
 
     if routeId:
         routeId = int(routeId)
@@ -107,7 +124,7 @@ def RouteCheck(startLocation, stopLocation, time, isDeparture, seatNumber=1, whe
 
     try:
         result, code, message, time_windows, time_slot = Requests.is_bookable(start_location=startLocation, stop_location=stopLocation, start_window=t_start,
-            stop_window=t_stop, load=seatNumber, loadWheelchair=wheelchairNumber, group_id=routeId, alternatives_mode=alternatives_mode_checked)
+            stop_window=t_stop, load=seatNumber, loadWheelchair=wheelchairNumber, group_id=routeId, alternatives_mode=alternatives_mode_checked, bookingTime=time)
 
     except Exception as err:
         LOGGER.error(f'RouteCheck failed: {err}')
@@ -156,7 +173,7 @@ def RouteRequest(startLocation, stopLocation, time, isDeparture, seatNumber=1, w
         
     try:
         solution = Requests.order(start_location=startLocation, stop_location=stopLocation, start_window=t_start,
-                                stop_window=t_stop, load=seatNumber, loadwheelchair= wheelchairNumber, group_id=routeId, order_id=orderId)
+                                stop_window=t_stop, load=seatNumber, loadwheelchair= wheelchairNumber, group_id=routeId, order_id=orderId, bookingTime=time.timestamp())
     except DuplicatedOrder as err:
         message = f'DuplicatedOrder, Order_id={orderId} already exists: {err}'
         LOGGER.error(message, exc_info=True)

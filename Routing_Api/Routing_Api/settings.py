@@ -1,7 +1,25 @@
+"""
+ Copyright © 2025 IAV GmbH Ingenieurgesellschaft Auto und Verkehr, All Rights Reserved.
+ 
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+ 
+ http://www.apache.org/licenses/LICENSE-2.0
+ 
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+ 
+ SPDX-License-Identifier: Apache-2.0
+"""
 import os
 import posixpath
 import raven
 from celery.schedules import crontab
+import datetime
 
 BUSNOW_ENVIRONMENT = os.environ.get('BUSNOW_ENVIRONMENT', None)
 
@@ -87,11 +105,11 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql_psycopg2',
         'CONN_MAX_AGE': 0,
-        'NAME': os.environ.get('POSTGRES_DB'),
-        'USER': os.environ.get('POSTGRES_USER'),
-        'PASSWORD': os.environ.get('POSTGRES_PASSWORD'),
-        'HOST': os.environ.get('POSTGRES_HOST'),
-        'PORT': os.environ.get('POSTGRES_PORT')
+        'NAME': os.environ.get('POSTGRES_DB', 'routing'),
+        'USER': os.environ.get('POSTGRES_USER', 'routing'),
+        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'test123'),
+        'HOST': os.environ.get('POSTGRES_HOST', 'db'),
+        'PORT': os.environ.get('POSTGRES_PORT', '5432')
     }
 }
 
@@ -204,9 +222,9 @@ CELERY_BEAT_SCHEDULE = {
     }
 }
 
-RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST')
-RABBITMQ_USER = os.environ.get('RABBITMQ_USERNAME')
-RABBITMQ_PASS = os.environ.get('RABBITMQ_PASSWORD')
+RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST', 'localhost')
+RABBITMQ_USER = os.environ.get('RABBITMQ_USERNAME', 'guest')
+RABBITMQ_PASS = os.environ.get('RABBITMQ_PASSWORD', 'guest')
 RABBITMQ_VHOST = os.environ.get(
     'RABBITMQ_VHOST', '/').replace("'", "").replace('"', '')
 

@@ -1,3 +1,20 @@
+"""
+ Copyright © 2025 IAV GmbH Ingenieurgesellschaft Auto und Verkehr, All Rights Reserved.
+ 
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+ 
+ http://www.apache.org/licenses/LICENSE-2.0
+ 
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+ 
+ SPDX-License-Identifier: Apache-2.0
+"""
 import json
 import os
 import time
@@ -403,7 +420,18 @@ class RequestManager:
         """ Cancels the order with the corresponding id. """
         LOGGER.debug(f'OrderCancelledCallback order id: {message.Id}')
         try:
+            # for started route we need to inform driver
+            if message.Id:
+                route = self.order2route(message.Id)
+                LOGGER.debug(f'OrderCancelledCallback route: {route}')
+
+                if route is not None:
+                    LOGGER.debug(f'OrderCancelledCallback route id: {route.id}, bus id {route.busId}')
+                    if route.status == Route.FROZEN or Route.status == Route.STARTED:
+                        self.Orders.current_route_changed_driver_warning(route.id,route.busId)
+
             self.cancel_order(order_id=message.Id)
+
         except ObjectDoesNotExist as err:
             LOGGER.error(f'OrderCancelledCallback: order {message.Id} not found, cannot be cancelled, error message: {err}')
             pass
@@ -446,7 +474,7 @@ class RequestManager:
             [starts, stops] = self.Stations.get_stops_by_geo_locations([startLocation, stopLocation]) 
             startNameInfo = starts[0].name if  starts != None and len(starts) > 0 else startLocation
             stopNameInfo = stops[0].name if stops != None and len(stops) > 0 else stopLocation
-            self.order(start_location=startLocation, stop_location=stopLocation, start_window=startWindow, stop_window=stopWindow, load=message.Seats, loadWheelchair=message.SeatsWheelchair, order_id=message.Id)
+            self.order(start_location=startLocation, stop_location=stopLocation, start_window=startWindow, stop_window=stopWindow, load=message.Seats, loadWheelchair=message.SeatsWheelchair, order_id=message.Id, bookingTime=message.Time)
          
         except DuplicatedOrder as err:
             LOGGER.error('DuplicatedOrder, Order_id already exists: %s', err, extra={'body': message}, exc_info=True)
@@ -498,7 +526,7 @@ class RequestManager:
             LOGGER.error('Order could not be processed: %s', err, extra={'body': message}, exc_info=True)
 
         if errorCaught:
-            self.Orders.route_rejected(order_id=message.Id, reason=errorMess, start=startNameInfo, destination=stopNameInfo, datetime=time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
+            self.Orders.route_rejected(order_id=message.Id, reason=errorMess, start=startNameInfo, destination=stopNameInfo, bookingTime=message.Time, seats=message.Seats, seats_wheelchair=message.SeatsWheelchair)
 
     
     def commit_new_order(self, newRoutes, new_order_id, new_load, new_loadWheelchair, new_group_id) -> bool:
@@ -524,7 +552,7 @@ class RequestManager:
             LOGGER.error(f"Failed to commit new order: {e}")
             return False
 
-    def order(self, start_location, stop_location, start_window, stop_window, load=1, loadWheelchair=0, group_id=None, order_id=None):
+    def order(self, start_location, stop_location, start_window, stop_window, load=1, loadWheelchair=0, group_id=None, order_id=None, bookingTime=None):
         """
         Creates a new order and attempts to find a route for it.
         If a route is found, it commits the order and returns the order ID.
@@ -540,7 +568,7 @@ class RequestManager:
             [starts, stops] = self.Stations.get_stops_by_geo_locations([start_location, stop_location])
             startNameInfo = starts[0].name if  starts != None and len(starts) > 0 else start_location
             stopNameInfo = stops[0].name if stops != None and len(stops) > 0 else stop_location
-            self.Orders.route_rejected(order_id=order_id, reason=comment, start=startNameInfo, destination=stopNameInfo, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)
+            self.Orders.route_rejected(order_id=order_id, reason=comment, start=startNameInfo, destination=stopNameInfo, bookingTime=bookingTime, seats=load, seats_wheelchair=loadWheelchair)
             return None
 
         if solution['type'] == 'new':
@@ -612,7 +640,7 @@ class RequestManager:
             LOGGER.error(f'Error processing nodes after order deletion: {e}')
 
     def is_bookable(self, start_location, stop_location, start_window, stop_window, load=1, loadWheelchair=0,
-                    group_id=None, alternatives_mode=RequestManagerConfig.ALTERNATIVE_SEARCH_NONE):
+                    group_id=None, alternatives_mode=RequestManagerConfig.ALTERNATIVE_SEARCH_NONE, bookingTime=None):
         """Return result, code and message for a given request."""
         LOGGER.debug(f'is_bookable')
 
@@ -737,7 +765,7 @@ class RequestManager:
             result = (False, self.INTERNAL_EXCEPTION, err.message, times_found, time_slot_min_max)
             
         if rejectedEvent:
-            self.Orders.route_rejected(order_id=-1, reason=rejectedMessage, start=startNameInfo, destination=stopNameInfo, datetime=start_window, seats=load, seats_wheelchair=loadWheelchair)                
+            self.Orders.route_rejected(order_id=-1, reason=rejectedMessage, start=startNameInfo, destination=stopNameInfo, bookingTime=bookingTime, seats=load, seats_wheelchair=loadWheelchair)                
         return result
         
     def order2route(self, order_id):
@@ -799,13 +827,17 @@ class RequestManager:
 
         return start, stop, community
 
-    def new_request_eval_time_windows(self, start_window, stop_window, alternatives_mode):
+    def new_request_eval_time_windows(self, start_window, stop_window, alternatives_mode, routes_in_operation : bool):
         time_windows = []
 
         # order time needs min offset from now
-        offsetMinutes_start = self.Config.timeOffset_MinMinutesToOrderFromNow
+        if routes_in_operation:
+            offsetMinutes_start = self.Config.timeOffset_MinMinutesToOrderFromNowIntoStartedRoutes
+        else:
+            offsetMinutes_start = self.Config.timeOffset_MinMinutesToOrderFromNow
+
         # TODO wenn die Ankunftszeit vorgegeben ist, dann ist die Untergrenze eigtl erst nach dem Routing pruefbar, pragmatisch koennte man schon mal in die time-matrix schauen... (?)
-        offsetMinutes_stop = offsetMinutes_start + 15
+        offsetMinutes_stop = offsetMinutes_start + self.Config.timeOffset_MinMinutesToOrderFromNowOffsetForDepartureBooked
 
         # print('new_request_eval_time_windows offsetMinutes_start: ' + str(offsetMinutes_start))
 
@@ -905,10 +937,13 @@ class RequestManager:
         from routing.routingClasses import Moby, Trip
         reason = ''
 
-        # eval bus stops and community from coords
-        # start, stop, community = self.new_request_eval_start_stop(start_location, stop_location)
-        # station_start = Station(node_id=start.mapId, longitude=start.longitude, latitude=start.latitude)
-        # station_stop = Station(node_id=stop.mapId, longitude=stop.longitude, latitude=stop.latitude)
+        # check if order exists already
+        if order_id:
+            booked_route = self.order2route(order_id)
+            if booked_route is not None:
+                reason = f"Order id {order_id} is already in use."
+                LOGGER.warning(reason)
+                raise DuplicatedOrder(reason)        
 
         # eval all suitable start times according to alternatives mode
         # new_request_eval_time_windows pretty much converts the start_window_orig from a tuple to a list of tuples: () becomes [()], if alternatives_mode is True, then more time windows are added
@@ -916,38 +951,30 @@ class RequestManager:
 
         # todo try/catch does not currently work with tests, since mock times cannot be injected appropriately
         # try:
-        start_windows, stop_windows = self.new_request_eval_time_windows(start_window_orig, stop_window_orig, alternatives_mode)
+        start_windows, stop_windows = self.new_request_eval_time_windows(start_window_orig, stop_window_orig, alternatives_mode, routes_in_operation=False)
         # except InvalidTime as err:
         #     err.message = f"{err.message}, Start: {start.name} {start_location}, Destination: {stop.name} {stop_location}"
         #     raise err
         # except InvalidTime2 as err:
         #     err.message = f"{err.message}, Start: {start.name} {start_location}, Destination: {stop.name} {stop_location}"
-        #     raise err
+        #     raise err       
 
-        # check if order exists already
-        if order_id:
-            booked_route = self.order2route(order_id)
-            if booked_route is not None:
-                reason = f"Order id {order_id} is already in use."
-                LOGGER.warning(reason)
-                raise DuplicatedOrder(reason)
-
-        # todo this might be shifted before new_request_eval_time_windows since then addtional station info can be added to error message
+        # eval bus stops and community from coords
         start, stop, community = self.new_request_eval_start_stop(start_location, stop_location)
         station_start = Station(node_id=start.mapId, longitude=start.longitude, latitude=start.latitude)
         station_stop = Station(node_id=stop.mapId, longitude=stop.longitude, latitude=stop.latitude)
 
         LOGGER.info(f'station_start.node_id={station_start.node_id} , start.mapId={start.mapId}')
         LOGGER.info(f'station_stop.node_id={station_stop.node_id} , stop.mapId={stop.mapId}')
-        
+
         if not start.mapId:
             raise NoStop(message=f"No bus stop was found for the given start location {start.name} (lat: {start_location[0]}, long: {start_location[1]})!")
 
         if not stop.mapId:
-            raise NoStop(message=f"No bus stop was found for the given destination {stop.name} location (lat: {stop_location[0]}, long: {stop_location[1]})!")
-        
-        # eval al available busses for all requested times at once - performance!
-        start_times = []
+            raise NoStop(message=f"No bus stop was found for the given destination {stop.name} location (lat: {stop_location[0]}, long: {stop_location[1]})!")       
+     
+        # eval all available busses for all requested times at once - performance!
+        start_times  = []
         stop_times = []
 
         if start_window_orig:
@@ -957,7 +984,35 @@ class RequestManager:
         elif stop_window_orig:
             start_times = None
             for stop_window_tmp in stop_windows:
-                stop_times.append(stop_window_tmp[1])
+                stop_times.append(stop_window_tmp[1])        
+
+        timeMaxForRoutesInOperation = datetime.now(UTC) + timedelta(days=1000*365) # almost infinity
+        allowOrdersInStartedRoutes = False
+
+        if self.Config.timeOffset_MinMinutesToOrderFromNowIntoStartedRoutes > -1:
+            allowOrdersInStartedRoutes = True
+            timeMaxForRoutesInOperation = datetime.now(UTC) + timedelta(minutes=self.Config.timeOffset_MinMinutesToOrderFromNowIntoStartedRoutes)
+                                                                    
+        (busses_for_times, time_in_blocker, busses_have_routes_in_operation) = self.Busses.get_available_buses(
+            community=community, start_times=start_times, stop_times=stop_times, allowOrdersInStartedRoutes=allowOrdersInStartedRoutes, timeMaxForRoutesInOperation=timeMaxForRoutesInOperation)
+        LOGGER.debug(f'available busses calculated {busses_for_times}')
+
+        # update time windows if busses have already routes in operation
+        if busses_have_routes_in_operation:
+            LOGGER.debug(f'busses have routes in operation, time windows adapted')
+            start_windows, stop_windows = self.new_request_eval_time_windows(start_window_orig, stop_window_orig, alternatives_mode, routes_in_operation=True)
+
+            start_times  = []
+            stop_times = []
+
+            if start_window_orig:
+                stop_times = None
+                for start_window_tmp in start_windows:
+                    start_times.append(start_window_tmp[0])
+            elif stop_window_orig:
+                start_times = None
+                for stop_window_tmp in stop_windows:
+                    stop_times.append(stop_window_tmp[1])   
 
         # eval the time slot under consideration
         if start_times and len(start_times) > 1:
@@ -972,15 +1027,6 @@ class RequestManager:
         elif stop_window_orig:
             time_slot_complete.append(stop_window_orig[0])
             time_slot_complete.append(stop_window_orig[1])
-
-        timeMaxForRoutesInOperation = datetime.now(UTC) + timedelta(days=1000*365) # almost infinity
-
-        if self.Config.timeOffset_MaxMinutesFromNowToReduceAvailabilitesByStartedRoutes > -1:
-            timeMaxForRoutesInOperation = datetime.now(UTC) + timedelta(minutes=self.Config.timeOffset_MaxMinutesFromNowToReduceAvailabilitesByStartedRoutes)
-                                                                    
-        (busses_for_times, time_in_blocker) = self.Busses.get_available_buses(
-            community=community, start_times=start_times, stop_times=stop_times, timeMaxForRoutesInOperation=timeMaxForRoutesInOperation)
-        LOGGER.debug(f'available busses calculated {busses_for_times}')
 
         # if the first solution works, we do not calc alternatives
         break_if_first_window_works = True
@@ -1097,9 +1143,16 @@ class RequestManager:
                     stop_time=stop_window_current[1] if stop_window_current else None)
                 LOGGER.debug(f'promises={promises}')
                 
-                t_ref, request, promises, mandatory_stations, busses = self.normalize_dates(
+                t_ref, request, promises, mandatory_stations, busses, t_now_normalized = self.normalize_dates(
                     request, promises, mandatory_stations, busses)
                 LOGGER.debug(f'normalized_dates')
+
+                t_min_start_time_for_orders = t_now_normalized
+
+                if busses_have_routes_in_operation:
+                    t_min_start_time_for_orders += self.Config.timeOffset_MinMinutesToOrderFromNowIntoStartedRoutes
+                else:
+                    t_min_start_time_for_orders += self.Config.timeOffset_MinMinutesToOrderFromNow
 
                 # generate graph including road closures do this only once due to performance!
 
@@ -1149,7 +1202,7 @@ class RequestManager:
                 # print('time elapsed before solver')
                 # print(timeElapsed)
                 LOGGER.debug(f'Running Solver.solve(..)')
-                raw_solution = self.Solver.solve(graph, self.OSRM_url, request, promises, mandatory_stations, busses, optionsDict, apriori_times_matrix)
+                raw_solution = self.Solver.solve(graph, self.OSRM_url, request, promises, mandatory_stations, busses, t_min_start_time_for_orders, optionsDict, apriori_times_matrix)
                 # timeElapsed = time.time()-timeStarted
                 # print('time elapsed after solver')
                 # print(timeElapsed)
@@ -1253,7 +1306,11 @@ class RequestManager:
             normed_promises[order_id]['loadWheelchair'] = old_promise['loadWheelchair']
         # TODO:mandatory stations
 
-        return t_ref, request, normed_promises, mandatory_stations, busses
+        # min time for orders accepted        
+        t_now_normalized = norm(datetime.now(UTC))
+        LOGGER.debug(f'normalized time now: ' + str(t_now_normalized))
+
+        return t_ref, request, normed_promises, mandatory_stations, busses, t_now_normalized
 
     @staticmethod
     def denormalize_dates(t_ref, solution) -> datetime:

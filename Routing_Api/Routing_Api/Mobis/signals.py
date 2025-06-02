@@ -1,6 +1,26 @@
+"""
+ Copyright © 2025 IAV GmbH Ingenieurgesellschaft Auto und Verkehr, All Rights Reserved.
+ 
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+ 
+ http://www.apache.org/licenses/LICENSE-2.0
+ 
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+ 
+ SPDX-License-Identifier: Apache-2.0
+"""
 from Routing_Api.Mobis.EventBus import AsyncPublisher, Consumer, UnthreadedPublisher
 import json
 from datetime import datetime
+import logging
+
+LOGGER = logging.getLogger('Mobis.services')
 
 # Outgoing
 # RouteConfirmedIntegrationEvent(int orderId, int routeId)
@@ -56,6 +76,9 @@ class RabbitMqSender():
     def RouteFrozenIntegrationEvent(self, routeId:int, startTimeMinimum:datetime):
         message = {'routeId': routeId, 'startTimeMinimum': startTimeMinimum.isoformat()}
         self._send(message=message, routing_key='RouteFrozenIntegrationEvent')
+    def CurrentRouteChangedDriverWarningIntegrationEvent(self, route_id : int, bus_id : int):
+        message = {'routeId': route_id, 'busId': bus_id}
+        self._send(message=message, routing_key='CurrentRouteChangedDriverWarningIntegrationEvent')
     def RouteChangedIntegrationEvent(self, orderId:int, oldRouteId:int, newRouteId:int,
             startTimeMinimum:datetime, startTimeMaximum:datetime,
             destinationTimeMinimum:datetime, destinationTimeMaximum:datetime, busId : int):
@@ -70,9 +93,11 @@ class RabbitMqSender():
             'destinationTimeMaximum': destinationTimeMaximum.isoformat()
         }
         self._send(message=message, routing_key='RouteChangedIntegrationEvent')
-    def RouteRejectedIntegrationEvent(self, orderId:int=0, reason:str = "No reason provided", start:str = "", destination:str= "", datetime:str= "", seats:int = 0, seats_wheelchair:int=0):
-        message = {'orderId': orderId, 'reason': reason, 'start': start, 'destination': destination, 'datetime': datetime, 'seats': seats, 'seats_wheelchair': seats_wheelchair}
+    def RouteRejectedIntegrationEvent(self, orderId:int=0, reason:str = "No reason provided", start:str = "", destination:str= "", bookingTime:str= "", seats:int = 0, seats_wheelchair:int=0):
+        LOGGER.info("RouteRejectedIntegrationEvent")
+        message = {'orderId': orderId, 'reason': reason, 'start': start, 'destination': destination, 'bookingTime': bookingTime, 'seats': seats, 'seats_wheelchair': seats_wheelchair}
         self._send(message=message, routing_key='RouteRejectedIntegrationEvent')
+        LOGGER.info("RouteRejectedIntegrationEvent sent")
 
 class RabbitMqListener:
     """
