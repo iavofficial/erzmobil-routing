@@ -1,3 +1,20 @@
+"""
+ Copyright © 2025 IAV GmbH Ingenieurgesellschaft Auto und Verkehr, All Rights Reserved.
+ 
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+ 
+ http://www.apache.org/licenses/LICENSE-2.0
+ 
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+ 
+ SPDX-License-Identifier: Apache-2.0
+"""
 from datetime import datetime
 import logging
 
@@ -20,28 +37,41 @@ class OrdersMQ():
             destinationTimeMaximum=stop_time_max,
             busId=bus_id)
         
-    def route_rejected(self, order_id=0, reason="No reason provided", start="", destination="", datetime="", seats=0, seats_wheelchair=0):
-        datetime = self.datetime2isoformat(datetime)
-        LOGGER.info(f'route_rejected {order_id}, reason: {reason}, start: {start}, destination: {destination}, datetime: {datetime}, seats: {seats}, seats_wheelchair: {seats_wheelchair}')
-        self._messageBus.RouteRejectedIntegrationEvent(orderId=order_id, reason=reason, start=start, destination=destination, datetime=datetime, seats=seats, seats_wheelchair=seats_wheelchair)
+    def current_route_changed_driver_warning(self, route_id : int, bus_id : int):
+        LOGGER.info(f'current route_changed driver warning: route {route_id}, bus {bus_id}')
+        self._messageBus.CurrentRouteChangedDriverWarningIntegrationEvent(route_id=route_id, bus_id=bus_id)
+        
+    def route_rejected(self, order_id=0, reason="No reason provided", start="", destination="", bookingTime="", seats=0, seats_wheelchair=0):
+        bookingTime = self.datetime2isoformat(bookingTime)
+        LOGGER.info(f'route_rejected {order_id}, reason: {reason}, start: {start}, destination: {destination}, bookingTime: {bookingTime}, seats: {seats}, seats_wheelchair: {seats_wheelchair}')
+        
+        self._messageBus.RouteRejectedIntegrationEvent(orderId=order_id, reason=reason, start=start, destination=destination, bookingTime=bookingTime, seats=seats, seats_wheelchair=seats_wheelchair)
 
     def datetime2isoformat(self, date_time: any) -> str:
+        LOGGER.info(f'datetime2isoformat: {date_time}')       
         if isinstance(date_time, datetime):
             # If date_time is already a datetime object, convert it to ISO format
-            return date_time.isoformat()
+            new_datetime = date_time.isoformat()
+            LOGGER.info(f'date_time is in datetime object. New_datetime in isoformat {new_datetime}')            
+            return new_datetime
         elif isinstance(date_time, str):
+            LOGGER.info(f'date_time is a string')
             try:
-                # Try to parse the date_time as ISO format string
-                parsed_datetime = datetime.fromisoformat(date_time)
-                return parsed_datetime.isoformat()
-            except ValueError:
-                # If parsing fails, return the current datetime in ISO format
-                current_datetime = datetime.now()
-                return current_datetime.isoformat()
+                LOGGER.info(f'delete milliseconds and replace time zone offset (000Z / 0000) with +00:00 - {date_time}')
+                date_string_cleaned = date_time.split('.')[0] + '+00:00'
+                parsed_datetime = datetime.strptime(date_string_cleaned, '%Y-%m-%dT%H:%M:%S%z')
+                LOGGER.info(f'parsed_datetime : {parsed_datetime}')
+                
+                # convert datetime-Objekts to ISO format
+                new_datetime = parsed_datetime.isoformat()
+                LOGGER.info(f'new_datetime in isoformat: {new_datetime}')
+                return new_datetime
+            except ValueError as err:
+                LOGGER.error(f'error in formating of string datetime: {err}')
+                return ""
         else:
-            # If date_time is neither a string nor a datetime object, return the current datetime in ISO format
-            current_datetime = datetime.now()
-            return current_datetime.isoformat()
+            LOGGER.info(f'date_time is neither a string nor a datetime object')
+            return ""
     
     def route_confirmed(self, order_id, route_id, start_time_min, start_time_max, stop_time_min, stop_time_max, bus_id):
         LOGGER.info(f'route_confirmed for order {order_id}, route {route_id}, bus {bus_id}')

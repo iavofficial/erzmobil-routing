@@ -1,3 +1,20 @@
+"""
+ Copyright © 2025 IAV GmbH Ingenieurgesellschaft Auto und Verkehr, All Rights Reserved.
+ 
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+ 
+ http://www.apache.org/licenses/LICENSE-2.0
+ 
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+ 
+ SPDX-License-Identifier: Apache-2.0
+"""
 from typing import List
 from dateutil.relativedelta import relativedelta
 from routing.routingClasses import MobyLoad
@@ -92,7 +109,7 @@ class RoutesDummy():
                         dictStatusValsNotBooked.setdefault(routeTmp.status, set()).update({routeTmp.id})
                     dictRouteIdBusId[routeTmp.id] = routeTmp.bus.uid
 
-            remainingRouteId = -1  # if a route is started or frozen, this route must be used and updated, otherwise a new route is created          
+            routeInOperationRouteId = -1  # if a route is started or frozen, this route must be used and updated, otherwise a new route is created          
 
             # decide whether the changes in routes are realizable by the busses, in particular: decide if it is NOT allowed
             if len(dictStatusValsNotBooked.keys()) > 1:
@@ -108,8 +125,8 @@ class RoutesDummy():
                     # we have exactly one old route that is started or frozen   
                     # instead of creating a new route, we can just move the orders to this route if the route id is valid
                     # additionally the bus for this route must not change
-                    remainingRouteId = list(next(iter(dictStatusValsNotBooked.values())))[0]
-                    isCommittable = remainingRouteId > 0 and route.bus_id == dictRouteIdBusId[remainingRouteId]                   
+                    routeInOperationRouteId = list(next(iter(dictStatusValsNotBooked.values())))[0]
+                    isCommittable = routeInOperationRouteId > 0 and route.bus_id == dictRouteIdBusId[routeInOperationRouteId]                   
 
                 else:   
                     # another route status than started or frozen 
@@ -125,29 +142,36 @@ class RoutesDummy():
                 for order_id in orders:
                     # but only if there actually is one
                     # and if the route is not the remaining route
-                    if old_routes[order_id] is not None and (old_routes[order_id].id != remainingRouteId):    
+                    if old_routes[order_id] is not None and (old_routes[order_id].id != routeInOperationRouteId):    
                         self.remove_from_route(old_routes[order_id].id, order_id, True)
 
                 # create and save routes that actually serve someone, but only if there is not a remainung route
                 # a new one can only be of status BOOKED, a remaing should conserve its status
+
+                finalRouteId = -1
+
                 if len(orders) > 0:                    
-                    db_entry = self.create_or_update_route(bus_id=route.bus_id, status_default=self._routes.BOOKED, nodes=route.nodes, route_id=remainingRouteId)
+                    db_entry = self.create_or_update_route(bus_id=route.bus_id, status_default=self._routes.BOOKED, nodes=route.nodes, route_id=routeInOperationRouteId)
                                         
-                    # if remainingRouteId >0:
-                    #     print("commit - remainingRouteId: " + str(remainingRouteId))                        
+                    # if routeInOperationRouteId >0:
+                    #     print("commit - routeInOperationRouteId: " + str(routeInOperationRouteId))                        
                     #     print("commit - routeRemaining.nodes: " + str(db_entry.nodes))
                     #     print("commit - route.nodes: " + str(route.nodes))    
 
-                    remainingRouteId = db_entry.id                    
+                    finalRouteId = db_entry.id                    
 
                 # communicate new assignments with our event bus
                 for order_id in orders:
-                    if old_routes[order_id] is not None and old_routes[order_id].id != remainingRouteId:
+                    if old_routes[order_id] is not None and old_routes[order_id].id != finalRouteId:
                         order = self._orders.objects.get(uid=order_id)
                         hopOn = order.hopOnNode
                         hopOff = order.hopOffNode
-                        Orders.route_changed(order_id=order_id, new_route_id=remainingRouteId, old_route_id=old_routes[order_id].id,
+                        Orders.route_changed(order_id=order_id, new_route_id=finalRouteId, old_route_id=old_routes[order_id].id,
                             start_time_min=hopOn.tMin, start_time_max=hopOn.tMax, stop_time_min=hopOff.tMin, stop_time_max=hopOff.tMax, bus_id = route.bus_id)
+                
+                # driver needs information if started route was changed, only once per route to minimize number of pushes
+                if routeInOperationRouteId > 0:
+                    Orders.current_route_changed_driver_warning(routeInOperationRouteId, route.bus_id)
             else:
                 return False
                     
@@ -319,14 +343,14 @@ class RoutesDummy():
             if not route_id in route_ids:
                 route_ids.append(route_id)
 
-        # get all orders with extracted route ids
+        # get all orders with extracted route ids, i.e. we must not miss any order at the current route even if it is outisde the lookaround-time
         orders = orders.filter(hopOnNode__route__id__in=route_ids)
         #print(orders.count())
 
         timeNow = datetime.now(UTC)
 
         for order in orders.all():
-            if order.hopOffNode.tMax > timeNow: # do not add promises that are already finished
+            if order.hopOffNode.tMax > timeNow: # do not add promises that are already finished, TODO it would be clearer to call an explicitly defined "done" status (e.g. set by driver)
                 promises[order.uid]['start'] = (order.hopOnNode.mapId, (order.hopOnNode.tMin, order.hopOnNode.tMax))
                 promises[order.uid]['start_lat_lon'] = (order.hopOnNode.latitude, order.hopOnNode.longitude)
                 promises[order.uid]['stop'] = (order.hopOffNode.mapId, (order.hopOffNode.tMin, order.hopOffNode.tMax))

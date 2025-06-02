@@ -1,3 +1,20 @@
+"""
+ Copyright © 2025 IAV GmbH Ingenieurgesellschaft Auto und Verkehr, All Rights Reserved.
+ 
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+ 
+ http://www.apache.org/licenses/LICENSE-2.0
+ 
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+ 
+ SPDX-License-Identifier: Apache-2.0
+"""
 from datetime import datetime, timedelta
 from routing.routingClasses import Vehicle, VehicleCapacity, datetime2isostring
 from dateutil.relativedelta import relativedelta
@@ -252,7 +269,7 @@ class Busses():
 
         return result
 
-    def get_available_buses(self, community, start_times: List[datetime] = None, stop_times: List[datetime] = None, timeMaxForRoutesInOperation: datetime = datetime.now(UTC) + timedelta(minutes=30) ):
+    def get_available_buses(self, community, start_times: List[datetime] = None, stop_times: List[datetime] = None, allowOrdersInStartedRoutes:bool = False, timeMaxForRoutesInOperation: datetime = datetime.now(UTC) + timedelta(minutes=30) ):
         # print("get_available_buses")
         # print(f"DEBUGGING start_times in get_available_buses: {start_times}")
         # print(f"DEBUGGING stop_times in get_available_buses: {stop_times}")
@@ -289,11 +306,15 @@ class Busses():
             stop_time=upper_time_range))
         # print(f"DEBUGGING availabilities in get_available_buses: {availabilities}")
 
+        busses_have_routes_in_operation = False
+
         # remove reserved times of frozen routes from time slot
         listRoutesInOperation = list(self._get_frozen_routes_for_busses(
             bus_ids=[availability.bus_id for availability in availabilities],
             start_time=lower_time_range,
-            stop_time=upper_time_range))       
+            stop_time=upper_time_range))   
+
+        busses_have_routes_in_operation = len(listRoutesInOperation) > 0    
 
         # create a list for each bus with first and last (location, time) information
         # buffer is used that there is little time remaining between frozen routes an new ones
@@ -331,7 +352,13 @@ class Busses():
                     # print(end)
 
                     if time >= start and time <= end:
-                        timeslots.extend(self.reduce_timeslot(timeslot, constraints.get(bus_id, []), timeMaxForRoutesInOperation))
+                        constraintOfBus = []
+
+                        if not allowOrdersInStartedRoutes:
+                            # only in the "classic" case (no order in started route allowed) we update the available slots
+                            constraintOfBus = constraints.get(bus_id, [])
+
+                        timeslots.extend(self.reduce_timeslot(timeslot, constraintOfBus, timeMaxForRoutesInOperation))
 
                         # print("timeslots reduced")
                         # print(timeslots)
@@ -378,7 +405,7 @@ class Busses():
             time_in_blocker.append(
                 time_slots_empty and current_time_in_blocker)  # time in blocker only if no slots were found
         # print(f"DEBUGGING result in db_busses.py: {result}")
-        return (result, time_in_blocker)
+        return (result, time_in_blocker, busses_have_routes_in_operation)
 
 
 

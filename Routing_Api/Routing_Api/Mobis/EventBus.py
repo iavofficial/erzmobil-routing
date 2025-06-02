@@ -1,3 +1,20 @@
+"""
+ Copyright © 2025 IAV GmbH Ingenieurgesellschaft Auto und Verkehr, All Rights Reserved.
+ 
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+ 
+ http://www.apache.org/licenses/LICENSE-2.0
+ 
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+ 
+ SPDX-License-Identifier: Apache-2.0
+"""
 from pika import ConnectionParameters, BlockingConnection, PlainCredentials, exceptions, BasicProperties, DeliveryMode
 import os
 from _thread import start_new_thread
@@ -38,11 +55,21 @@ class AsyncPublisher(threading.Thread):
         self.daemon = True
         self.is_running = True
         self.name = "AsyncPublisher"
-
-        self.connection = BlockingConnection(parameters)
-        self.channel = self.connection.channel()
-        self.channel.confirm_delivery()
+        self.connection = None
+        self.channel = None
+        self._connect()
         atexit.register(self.stop)
+
+    def _connect(self):
+        try:
+            self.connection = BlockingConnection(parameters)
+            self.channel = self.connection.channel()
+            self.channel.confirm_delivery()
+            LOGGER.info("Connected to RabbitMQ")
+        except exceptions.AMQPConnectionError as e:
+            LOGGER.error(f"Failed to connect to RabbitMQ: {e}")
+            self.connection = None
+            self.channel = None
 
     def run(self):
         """
@@ -50,18 +77,26 @@ class AsyncPublisher(threading.Thread):
         process data events as long as the thread is running.
         """
         while self.is_running:
-            self.connection.process_data_events(time_limit=1)
-    
+            if self.connection and self.connection.is_open:
+                self.connection.process_data_events(time_limit=1)
+            else:
+                LOGGER.warning("Connection closed, attempting to reconnect")
+                self._connect()
+
     def _publish(self, routing_key, message, exchange=EXCHANGE):
-        try:
-            self.channel.basic_publish(exchange=exchange,
-                                       routing_key=routing_key,
-                                       body=message,
-                                       properties=BasicProperties(content_type='application/json',
-                                                                  delivery_mode=DeliveryMode.Transient))
-            LOGGER.info(f"Published {routing_key} with body: {message}")
-        except exceptions.UnroutableError as error:
-            LOGGER.exception(f"Message could not be confirmed: {error}")
+        if self.channel and self.channel.is_open:
+            try:
+                self.channel.basic_publish(
+                    exchange=exchange,
+                    routing_key=routing_key,
+                    body=message,
+                    properties=BasicProperties(content_type='application/json', delivery_mode=DeliveryMode.Transient)
+                )
+                LOGGER.info(f"Published {routing_key} with body: {message}")
+            except exceptions.UnroutableError as error:
+                LOGGER.exception(f"Message could not be confirmed: {error}")
+        else:
+            LOGGER.error("Channel is closed, cannot publish message")
 
     def publish(self, message, routing_key, exchange=EXCHANGE):
         """
@@ -69,17 +104,24 @@ class AsyncPublisher(threading.Thread):
         to ensure the `_publish` function is executed within the connection's IO loops context by calling
         back into the IO loop correctly from worker threads with `add_callback_threadsafe`.
         """
-        self.connection.add_callback_threadsafe(lambda: self._publish(routing_key, message, exchange))
-    
+        if self.connection and self.connection.is_open:
+            self.connection.add_callback_threadsafe(lambda: self._publish(routing_key, message, exchange))
+        else:
+            LOGGER.warning("Connection is closed, attempting to reconnect")
+            self._connect()
+            if self.connection and self.connection.is_open:
+                self.connection.add_callback_threadsafe(lambda: self._publish(routing_key, message, exchange))
+
     def stop(self):
         """
         Stops the running thread, processes any remaining data events and closes the connection if it's open.
         """
         self.is_running = False
         # Wait until all the data events have been processed
-        self.connection.process_data_events(time_limit=1)
-        if self.connection.is_open:
-            self.connection.close()
+        if self.connection:
+            self.connection.process_data_events(time_limit=1)
+            if self.connection.is_open:
+                self.connection.close()
 
 class UnthreadedPublisher():
     """

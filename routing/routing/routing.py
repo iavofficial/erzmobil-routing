@@ -1,3 +1,20 @@
+"""
+ Copyright © 2025 IAV GmbH Ingenieurgesellschaft Auto und Verkehr, All Rights Reserved.
+ 
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+ 
+ http://www.apache.org/licenses/LICENSE-2.0
+ 
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+ 
+ SPDX-License-Identifier: Apache-2.0
+"""
 from functools import partial
 
 # do not change order of ortools imports - may lead to segfaults in docker images (issue #246)
@@ -319,8 +336,7 @@ def add_time_window_constraints(routing:pywrapcp.RoutingModel,
         time_dimension.CumulVar(index).SetRange(time_window[0], time_window[1])
         routing.AddToAssignment(time_dimension.SlackVar(index))
 
-        logger.debug('time window constraint location_idx: {}, window: {}, index'.format(
-            location_idx, time_window, index))
+        # logger.debug('time window constraint location_idx: {}, window: {}, index'.format(location_idx, time_window, index))
 
         # try to minimize waiting times for fixed arrivals
         if data._locations_arrival_fixed[location_idx] == True:
@@ -657,9 +673,10 @@ class BusTour:
         # return self._final_paths
 
     def _add_moby(self, moby:Moby, group_id:Optional[str]=None,
-                  penalty:int=1000, promised:bool=False)->Optional[str]:        
+                  penalty:int=1000, promised:bool=False, t_min_start_time_for_orders=None)->Optional[str]:        
 
-        logger.debug(f'_add_moby: {moby}')
+        logger.debug(f'_add_moby: {moby}')        
+
         if not promised:
             if (moby.stop_window is not None and moby.start_window is not None)\
                     or (moby.stop_window is None and moby.start_window is None):
@@ -728,10 +745,16 @@ class BusTour:
                 moby.start_window, connection_start = self.adjust_time_window_for_connecting_times(moby.start_window, moby.start_station, True)
             else:
                 # arrival was ordered
-                arrivalFixed = True
+                arrivalFixed = True                
 
                 # 1. add not defined start window
                 moby.start_window = moby.stop_window[0]-dT, moby.stop_window[1]
+
+                # verify that min time allowed is satisfied for new defined start window
+                if t_min_start_time_for_orders is not None and moby.start_window[0] < t_min_start_time_for_orders:
+                    logger.debug('t_min_start_time_for_orders must be included in start window: {}'.format(moby.start_window))
+                    moby.start_window = t_min_start_time_for_orders, moby.start_window[1]
+                    logger.debug('t_min_start_time_for_orders was included in start window: {}'.format(moby.start_window))
 
                 # 2. adjust arrival window for connecting times
                 moby.stop_window, connection_stop = self.adjust_time_window_for_connecting_times(moby.stop_window, moby.stop_station, False)  
@@ -1154,7 +1177,7 @@ class BusTour:
         return printer.print(hideOutput)    
     
 
-def new_routing(G: nx.DiGraph, ORSM_url: str, request: Moby, promises: dict[int, Moby], mandatory_stations, busses, options, apriori_times_matrix = {}):
+def new_routing(G: nx.DiGraph, ORSM_url: str, request: Moby, promises: dict[int, Moby], mandatory_stations, busses, t_min_start_time_for_orders, options, apriori_times_matrix = {}):
     """ Solve a routing problem in one functional call. """    
     # for bus in busses:
     #     print(bus)
@@ -1216,7 +1239,7 @@ def new_routing(G: nx.DiGraph, ORSM_url: str, request: Moby, promises: dict[int,
         logger.debug('new_routing - slack iteration with slack {} and moby {}'.format(slack, request))
         logger.debug(f'request.start_station.node_id={request.start_station.node_id}')
         logger.debug(f'request.stop_station.node_id={request.stop_station.node_id}')
-        tour_id = tour.add_moby(request, build_paths=build_paths, promised=promised)  
+        tour_id = tour.add_moby(request, build_paths=build_paths, promised=promised, t_min_start_time_for_orders=t_min_start_time_for_orders)  
 
         if not(tour_id is None):
             logger.debug(f'break if not(tour_id is None)')
