@@ -1,6 +1,6 @@
 # Routing component of Mobility platform
 
-In dieser Datei soll skizziert werden, wie die Entwicklung des Routing-Service abläuft (Stand 07/2023).
+In dieser Datei soll skizziert werden, wie die Entwicklung des Routing-Service abläuft.
 
 ## Inhaltsverzeichnis
 
